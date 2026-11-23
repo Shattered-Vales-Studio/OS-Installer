@@ -1,0 +1,25 @@
+# Validates both editions' kickstarts and lints the scripts on every push and
+# pull request, so a broken installer is caught before anyone writes a USB
+# stick. No ISO is built here: that needs Fedora's netinst ISO and, for the
+# Studio edition, personal values that never leave the builder's machine.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint scripts
+        run: shellcheck build-iso.sh
+      - name: Validate Studio kickstart
+        run: ./build-iso.sh --edition studio --check
+      - name: Validate Home kickstart
+        run: ./build-iso.sh --edition home --check
