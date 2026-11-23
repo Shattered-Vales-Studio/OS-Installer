@@ -45,6 +45,9 @@ echo "Image: ${IMAGE}"
 # Installation settings
 # -----------------------------------------------------------------------------
 graphical
+# Boot the installed system to the GNOME login screen (first-boot account
+# setup) rather than a console, whatever mode the installer ran in.
+xconfig --startxonboot
 reboot --eject
 autopart --type=btrfs --noswap
 %include /tmp/sv-source.ks

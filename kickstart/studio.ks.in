@@ -80,6 +80,9 @@ echo "Image: ${IMAGE}  Disk: ${DISK}  Host: ${HOSTNAME}"
 # Installation settings
 # -----------------------------------------------------------------------------
 text
+# A text-mode install otherwise sets the installed system to boot to a
+# console (multi-user.target) instead of the GNOME login screen.
+xconfig --startxonboot
 reboot --eject
 lang ${SV_LANG}
 keyboard --vckeymap=${SV_KEYBOARD} --xlayouts='${SV_KEYBOARD}'
@@ -97,3 +100,12 @@ user --name=${SV_ADMIN_USER} --gecos="${SV_ADMIN_GECOS}" --groups=wheel --iscryp
 sshkey --username=${SV_ADMIN_USER} "${SV_ADMIN_SSH_PUBKEY}"
 
 %include /tmp/sv-post.ks
+
+# -----------------------------------------------------------------------------
+# The IT account must not become Homebrew's owner: that belongs to the first
+# developer who logs in (see the OS image's shatteredvales-homebrew.conf).
+# -----------------------------------------------------------------------------
+%post --erroronfail --log=/root/sv-post-homebrew.log
+install -d -m 0755 /etc/shatteredvales
+echo "${SV_ADMIN_USER}" >> /etc/shatteredvales/homebrew-skip-users
+%end
