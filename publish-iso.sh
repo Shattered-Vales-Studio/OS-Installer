@@ -148,7 +148,9 @@ setup() {
         rclone config delete "${REMOTE}"
         die "No Shared Drive is named \"${name}\"."
     fi
-    rclone config update "${REMOTE}" team_drive "${id}" >/dev/null
+    # config_refresh_token=false keeps rclone from asking for a second
+    # sign-in just to record the Shared Drive.
+    rclone config update "${REMOTE}" team_drive "${id}" config_refresh_token=false >/dev/null
     echo "Connected to the Shared Drive \"${name}\". Publish with: ./publish-iso.sh"
 }
 
