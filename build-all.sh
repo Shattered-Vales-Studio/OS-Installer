@@ -144,6 +144,50 @@ lane() {
     done
 }
 
+# Background build lanes, stopped by stop_builds on Ctrl+C.
+LANES=()
+
+# descendants
+#   Prints every process started under a process, deepest first, so they can
+#   be stopped children before parents.
+#   Arguments: $1 process ID
+#   Output: one process ID per line
+#   Returns: 0 always
+descendants() {
+    local child
+    for child in $(pgrep -P "$1"); do
+        descendants "${child}"
+        echo "${child}"
+    done
+}
+
+# stop_builds
+#   Ctrl+C reaches only this script: bash starts background jobs with Ctrl+C
+#   ignored, and the builds run as root under sudo, so without this they
+#   would carry on after the terminal returns and keep holding their build
+#   locks. Stops both lanes and everything they started (build-iso.sh, and
+#   through it podman, which stops and removes its container on TERM), then
+#   exits.
+#   Arguments: none
+#   Returns: does not return; exits 130
+stop_builds() {
+    local lane
+    local -a pids=()
+    trap - INT TERM
+    say "Stopping the builds"
+    for lane in "${LANES[@]}"; do
+        mapfile -t -O "${#pids[@]}" pids < <(descendants "${lane}")
+        pids+=("${lane}")
+    done
+    if (( ${#pids[@]} > 0 )); then
+        sudo -n kill -TERM "${pids[@]}" 2>/dev/null || kill -TERM "${pids[@]}" 2>/dev/null || true
+    fi
+    # Only the lanes: the sudo keep-alive loop runs until this script exits.
+    wait "${LANES[@]}" 2>/dev/null || true
+    echo "Stopped. Nothing was published; ISOs that finished are still in build/."
+    exit 130
+}
+
 # keep_sudo_alive
 #   Refreshes the sudo timestamp in the background until this script ends,
 #   because offline builds run longer than sudo's default five minutes. The
@@ -164,7 +208,7 @@ keep_sudo_alive() {
 #   Returns: see Exit codes
 main() {
     local publish=1 channel=latest netinst iso rc failed=0 started=${SECONDS}
-    local -a built=() lanes=()
+    local -a built=()
     while (( $# )); do
         case "$1" in
             --channel) channel="${2:?--channel needs latest or testing}"; shift ;;
@@ -194,13 +238,15 @@ main() {
 
     RESULTS="$(mktemp -d)"
     # One lane per edition: each machine builds two ISOs at once at most.
+    trap stop_builds INT TERM
     lane studio "${netinst}" nvidia base &
-    lanes+=($!)
+    LANES+=($!)
     lane home "${netinst}" base nvidia &
-    lanes+=($!)
+    LANES+=($!)
     # Only the build lanes: a bare `wait` would also wait for the sudo
     # keep-alive loop, which runs until this script ends.
-    wait "${lanes[@]}"
+    wait "${LANES[@]}"
+    trap - INT TERM
 
     for iso in "${RESULTS}"/*; do
         rc="$(cat "${iso}")"
