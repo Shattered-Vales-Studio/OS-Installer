@@ -11,6 +11,8 @@
 #   image is installed:
 #     studio  shatteredvales-os       developer workstation
 #     home    shatteredvales-os-home  family computer
+#   Every build also writes its full output to build/<iso-name>.log, so an
+#   error can be read later (or by someone helping over SSH).
 #   Two kinds of ISO:
 #     network  Fedora's netinst ISO with the kickstart embedded (mkksiso).
 #              Picks the NVIDIA or standard image from the graphics card and
@@ -39,11 +41,15 @@
 # Exit codes:
 #   0 on success, 1 on failure, 64 on bad usage.
 
-set -euo pipefail
+# errtrace (-E) lets the ERR trap that points to the log fire for failures
+# inside functions too.
+set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly HERE
 readonly REGISTRY="ghcr.io/shattered-vales-studio"
+# Log file of the current build, set by start_log.
+BUILD_LOG=""
 # Each offline build (edition and graphics variant) has its own working
 # folder, image-builder store and installer-environment tag, set in main, so
 # different builds can run in parallel; podman's own storage is safe to
@@ -66,6 +72,9 @@ readonly SUBST_VARS='${SV_IMAGE_REGISTRY} ${SV_IMAGE_NAME} ${SV_IMAGE_TAG} ${SV_
 #   Returns: does not return
 die() {
     echo "Error: $1" >&2
+    if [[ -n "${BUILD_LOG}" ]]; then
+        echo "Full log: ${BUILD_LOG}" >&2
+    fi
     exit "${2:-1}"
 }
 
@@ -219,6 +228,23 @@ build_offline() {
     fi
 }
 
+# start_log
+#   Copies everything the build prints to build/<output>.log as well as the
+#   terminal, and reports the log's location if the build fails. With sudo
+#   the log belongs to the person who ran it, so they can read and share it.
+#   Arguments: $1 output ISO name
+#   Returns: 0 always
+start_log() {
+    BUILD_LOG="${HERE}/build/${1%.iso}.log"
+    : > "${BUILD_LOG}"
+    if [[ -n "${SUDO_UID:-}" ]]; then
+        chown "${SUDO_UID}:${SUDO_GID:-${SUDO_UID}}" "${BUILD_LOG}"
+    fi
+    exec > >(tee -a "${BUILD_LOG}") 2>&1
+    trap 'echo "Build failed. Full log: ${BUILD_LOG}"' ERR
+    echo "Build started $(date '+%Y-%m-%d %H:%M:%S'); log: ${BUILD_LOG}"
+}
+
 # main
 #   Parses options, renders and validates the kickstart, and builds the ISO.
 #   Arguments: see Usage
@@ -271,6 +297,7 @@ main() {
         return 0
     fi
 
+    start_log "${output}"
     if (( offline )); then
         [[ "$(uname -s)" == Linux ]] || die "Offline ISOs build on Linux; use a Shattered Vales or Fedora machine." 64
         (( EUID == 0 )) || die "Offline ISOs need root: run with sudo." 64
