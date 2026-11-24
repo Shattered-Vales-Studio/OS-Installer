@@ -1,5 +1,3 @@
-# Personal deployment values (admin account, SSH key). Never committed.
-installer.env
 build/
 *.iso
 .DS_Store

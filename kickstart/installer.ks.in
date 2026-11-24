@@ -1,14 +1,17 @@
 # =============================================================================
-# Shattered Vales OS Home Edition - guided installer kickstart
+# Shattered Vales OS - guided installer kickstart (Studio and Home editions)
 #
-# Only the operating system image is preset. The installer's own screens ask
-# for the language, keyboard, Wi-Fi and which disk to use, and no accounts
-# are created here: on first boot the computer walks the family through
-# creating their accounts. ${SV_*} values are filled in by build-iso.sh.
+# Only the operating system image is preset; nothing ties an installer to a
+# particular site or organization. The installer's own screens ask for the
+# language, keyboard, network (and computer name), which disk to use, and
+# the first user account, which is made an administrator. If that screen is
+# skipped, GNOME's first-boot setup asks instead (Home Edition then
+# continues into Family Setup). ${SV_*} values are filled in by build-iso.sh;
+# the edition only changes SV_IMAGE_NAME.
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Hardware detection: picks the NVIDIA or standard Home image.
+# Hardware detection: picks the NVIDIA or standard image of the edition.
 # -----------------------------------------------------------------------------
 %pre --interpreter=/usr/bin/bash --erroronfail --log=/tmp/sv-pre.log
 set -euo pipefail
@@ -56,15 +59,17 @@ echo "Image: ${IMAGE}"
 # Installation settings
 # -----------------------------------------------------------------------------
 graphical
-# Boot the installed system to the GNOME login screen (first-boot account
-# setup) rather than a console, whatever mode the installer ran in.
+# Boot the installed system to the GNOME login screen rather than a console,
+# whatever mode the installer ran in.
 xconfig --startxonboot
 reboot --eject
-autopart --type=btrfs --noswap
 %include /tmp/sv-source.ks
 
-# No root password; the first account created on first boot is an
-# administrator.
+# Disk and partitioning are deliberately not set here, so the installer's
+# Installation Destination screen always asks which disk to use (Fedora's
+# automatic layout is Btrfs). No root password: administration goes through
+# the administrator account created on the User Creation screen or at first
+# boot.
 rootpw --lock
 
 %include /tmp/sv-post.ks

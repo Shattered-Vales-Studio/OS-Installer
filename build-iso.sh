@@ -4,17 +4,17 @@
 #
 # Purpose:
 #   Builds a Shattered Vales OS installer ISO for writing to a USB stick with
-#   balenaEtcher (or Fedora Media Writer).
-#     studio  Unattended: erases the largest internal disk and creates the IT
-#             administrator from installer.env. No questions asked.
-#     home    Guided: the installer asks for language, Wi-Fi and the disk;
-#             no accounts are created, so first boot walks the family
-#             through creating theirs.
+#   balenaEtcher (or Fedora Media Writer). Both editions install the same
+#   guided way: Anaconda asks for the language, network and computer name,
+#   the disk and the first (administrator) account, and nothing in the ISO is
+#   tied to a particular site or organization. The edition only picks which
+#   image is installed:
+#     studio  shatteredvales-os       developer workstation
+#     home    shatteredvales-os-home  family computer
 #   Two kinds of ISO:
-#     network  Fedora's netinst ISO with the edition's kickstart embedded
-#              (mkksiso). Picks the NVIDIA or standard image from the
-#              graphics card and downloads it during the install. Builds on
-#              macOS or Linux.
+#     network  Fedora's netinst ISO with the kickstart embedded (mkksiso).
+#              Picks the NVIDIA or standard image from the graphics card and
+#              downloads it during the install. Builds on macOS or Linux.
 #     offline  A Fedora 45 Anaconda environment with one OS image embedded
 #              (image-builder generic-iso), so installing needs no network.
 #              One ISO per graphics variant. Needs Linux, root and podman,
@@ -29,10 +29,8 @@
 #       Render and validate the kickstart only (no ISO; used by CI).
 #
 # Inputs:
-#   kickstart/<edition>.ks.in  Kickstart template
+#   kickstart/installer.ks.in  Kickstart template
 #   offline/Containerfile      Installer environment for offline ISOs
-#   installer.env              Studio only: personal values, git-ignored
-#                              (see installer.env.example)
 #
 # Requirements:
 #   docker (OrbStack works) or podman; offline ISOs need podman as root on
@@ -51,6 +49,11 @@ readonly FEDORA_TOOLS="registry.fedoraproject.org/fedora:45"
 # Fedora mirrors sometimes time out mid-build; retry patiently rather than
 # fail a build that has already downloaded several GB.
 readonly DNF_RETRY="--setopt=retries=10 --setopt=timeout=120 --setopt=minrate=1"
+# Only these variables are substituted, so the $variables used by the
+# kickstart's own shell script are left untouched. envsubst takes the names
+# literally, so they must not expand here.
+# shellcheck disable=SC2016
+readonly SUBST_VARS='${SV_IMAGE_REGISTRY} ${SV_IMAGE_NAME} ${SV_IMAGE_TAG} ${SV_OFFLINE_IMAGE}'
 
 # die
 #   Prints an error and exits.
@@ -83,18 +86,17 @@ container_cli() {
 }
 
 # render_kickstart
-#   Renders and validates the edition's kickstart in a Fedora container. For
-#   a network ISO it then embeds it into the netinst ISO; for an offline ISO
-#   it writes it to build/offline/ks.cfg for the installer environment.
-#   Arguments: $1 edition, $2 image name, $3 channel, $4 envsubst variable
-#              list, $5 env file, $6 mode (check, network or offline),
-#              $7 offline payload ref (offline mode only), $8 input netinst
-#              ISO and $9 output name (network mode only)
+#   Renders and validates the kickstart in a Fedora container. For a network
+#   ISO it then embeds it into the netinst ISO; for an offline ISO it writes
+#   it to build/offline/ks.cfg for the installer environment.
+#   Arguments: $1 image name, $2 channel, $3 mode (check, network or
+#              offline), $4 offline payload ref (offline and check modes),
+#              $5 input netinst ISO and $6 output name (network mode only)
 #   Returns: non-zero on any failure
 render_kickstart() {
-    local edition="$1" name="$2" channel="$3" vars="$4" env_file="$5" mode="$6"
-    local payload="${7:-}" input="${8:-}" output="${9:-}" iso_name="" cli
-    local -a mounts=(-v "${HERE}:/work:Z" -v "${env_file}:/installer.env:ro,Z")
+    local name="$1" channel="$2" mode="$3" payload="${4:-}" input="${5:-}" output="${6:-}"
+    local iso_name="" cli
+    local -a mounts=(-v "${HERE}:/work:Z")
     if [[ "${mode}" == network ]]; then
         iso_name="$(basename "${input}")"
         mounts+=(-v "$(cd "$(dirname "${input}")" && pwd):/iso:ro,Z")
@@ -102,20 +104,21 @@ render_kickstart() {
     if [[ "${mode}" == offline ]]; then cli="$(container_cli podman)"; else cli="$(container_cli)"; fi
 
     # mkksiso rewrites the ISO's boot configuration, which needs loop/device
-    # access, hence --privileged. The env file is mounted rather than copied
-    # so personal values never land in the build folder for network ISOs.
-    "${cli}" run --rm --privileged --platform linux/amd64 \
+    # access, hence --privileged. Host networking makes the container resolve
+    # names exactly like the machine: root's bridged container network
+    # cannot reach some host DNS setups (Tailscale's 100.100.100.100), which
+    # failed builds with "could not resolve host".
+    "${cli}" run --rm --privileged --network host --platform linux/amd64 \
         "${mounts[@]}" -w /work \
-        -e SUBST_VARS="${vars}" -e SV_IMAGE_REGISTRY="${REGISTRY}" \
+        -e SUBST_VARS="${SUBST_VARS}" -e SV_IMAGE_REGISTRY="${REGISTRY}" \
         -e SV_IMAGE_NAME="${name}" -e SV_IMAGE_TAG="${channel}" \
         -e SV_OFFLINE_IMAGE="${payload}" -e MODE="${mode}" \
         "${FEDORA_TOOLS}" bash -euo pipefail -c "
             dnf -y -q ${DNF_RETRY} install lorax gettext pykickstart >/dev/null
-            set -a; source /installer.env; set +a
             # mkksiso stores the kickstart under its own file name, so it
             # is rendered as ks.cfg for a recognisable name on the stick.
             ks=/tmp/ks.cfg
-            envsubst \"\${SUBST_VARS}\" < kickstart/${edition}.ks.in > \"\${ks}\"
+            envsubst \"\${SUBST_VARS}\" < kickstart/installer.ks.in > \"\${ks}\"
             # The %include files are written by %pre at install time; give
             # the validator representative stand-ins so it can check the
             # whole kickstart, including the included commands.
@@ -124,50 +127,41 @@ render_kickstart() {
             else
                 printf '%s\\n' 'ostreecontainer --url=registry.example/os:latest --transport=registry --no-signature-verification' > /tmp/sv-source.ks
             fi
-            printf '%s\\n' 'ignoredisk --only-use=nvme0n1' 'zerombr' 'clearpart --all --initlabel --drives=nvme0n1 --disklabel=gpt' 'bootloader --boot-drive=nvme0n1' > /tmp/sv-disk.ks
-            printf '%s\\n' 'network --hostname=sv-test' > /tmp/sv-host.ks
             printf '%s\\n' '%post' 'true' '%end' > /tmp/sv-post.ks
             ksvalidator -v F45 \"\${ks}\"
-            echo \"Kickstart OK: ${edition}\"
+            echo \"Kickstart OK: \${SV_IMAGE_NAME}\"
             case \"\${MODE}\" in
                 check) exit 0 ;;
                 offline)
                     mkdir -p build/offline
-                    install -m 0600 \"\${ks}\" build/offline/ks.cfg
+                    cp \"\${ks}\" build/offline/ks.cfg
                     exit 0 ;;
             esac
             # Removing the media check makes the default boot entry start
-            # installing immediately instead of verifying the USB first.
+            # the installer immediately instead of verifying the USB first.
             # mkksiso refuses to overwrite, so a rebuild replaces the old ISO.
             rm -f 'build/${output}' 'build/${output}.sha256'
             mkksiso --ks \"\${ks}\" -r 'rd.live.check' \
                 '/iso/${iso_name}' 'build/${output}'
-            rm -f \"\${ks}\"
             cd build && sha256sum '${output}' > '${output}.sha256'
         "
 }
 
 # write_iso_yaml
-#   Writes image-builder's boot menu and volume label for the offline ISO.
-#   The Studio entry points Anaconda at the embedded kickstart so it runs
-#   unattended; the Home entry lets Anaconda show its screens with the
-#   kickstart as defaults.
+#   Writes image-builder's boot menu and volume label for an offline ISO:
+#   one entry that starts Anaconda's graphical installer with the kickstart
+#   as its defaults.
 #   Arguments: $1 edition, $2 volume label
 #   Returns: 0 on success
 write_iso_yaml() {
-    local edition="$1" label="$2" args="inst.stage2=hd:LABEL=$2 console=tty0 rhgb quiet"
-    if [[ "${edition}" == studio ]]; then
-        args+=" inst.ks=file:/usr/share/anaconda/interactive-defaults.ks inst.text"
-    else
-        args+=" inst.graphical"
-    fi
+    local edition="$1" label="$2"
     cat > "${OFFLINE_DIR}/iso.yaml" <<YAML
 label: "${label}"
 grub2:
   timeout: 10
   entries:
     - name: "Install Shattered Vales OS (${edition^})"
-      linux: "/images/pxeboot/vmlinuz ${args}"
+      linux: "/images/pxeboot/vmlinuz inst.stage2=hd:LABEL=${label} console=tty0 rhgb quiet inst.graphical"
       initrd: "/images/pxeboot/initrd.img"
 YAML
 }
@@ -180,7 +174,7 @@ YAML
 #   Arguments: $1 edition, $2 payload image ref, $3 output ISO name
 #   Returns: non-zero on any failure
 build_offline() {
-    local edition="$1" payload="$2" output="$3" label env_tag work
+    local edition="$1" payload="$2" output="$3" label env_tag work iso
     label="SVOS-${edition^^}"
     env_tag="localhost/shatteredvales-installer-${edition}:latest"
     work="${OFFLINE_DIR}/output"
@@ -189,14 +183,11 @@ build_offline() {
     say "Downloading ${payload} into root's container storage"
     podman pull "${payload}"
     say "Building the installer environment (${env_tag})"
-    podman build -t "${env_tag}" -f "${HERE}/offline/Containerfile" "${OFFLINE_DIR}"
-    # The rendered kickstart can hold Studio admin values; it now lives only
-    # inside the installer image and the ISO.
-    rm -f "${OFFLINE_DIR}/ks.cfg"
+    podman build --network host -t "${env_tag}" -f "${HERE}/offline/Containerfile" "${OFFLINE_DIR}"
 
     say "Building the ISO with image-builder"
     rm -rf "${work}" && mkdir -p "${work}"
-    podman run --rm --privileged --security-opt label=type:unconfined_t \
+    podman run --rm --privileged --network host --security-opt label=type:unconfined_t \
         -v /var/lib/containers/storage:/var/lib/containers/storage \
         -v /dev:/dev -v "${work}:/output" "${FEDORA_TOOLS}" bash -euo pipefail -c "
             dnf -y -q ${DNF_RETRY} install image-builder osbuild osbuild-depsolve-dnf podman >/dev/null
@@ -204,7 +195,6 @@ build_offline() {
                 --bootc-installer-payload-ref '${payload}' \
                 --bootc-default-fs ext4 --output-dir /output generic-iso
         "
-    local iso
     iso="$(find "${work}" -name '*.iso' -print -quit)"
     [[ -n "${iso}" ]] || die "image-builder finished without producing an ISO; see the output above."
     mv "${iso}" "${HERE}/build/${output}"
@@ -221,7 +211,7 @@ build_offline() {
 #   Arguments: see Usage
 #   Returns: non-zero on any failure
 main() {
-    local edition="" channel=latest input="" output="" name vars env_file=""
+    local edition="" channel=latest input="" output="" name
     local check=0 offline=0 variant="" payload="" mode
     while (( $# )); do
         case "$1" in
@@ -237,36 +227,9 @@ main() {
         shift
     done
     [[ "${channel}" == latest || "${channel}" == testing ]] || die "--channel must be latest or testing" 64
-
-    # Only these variables are substituted, so the $variables used by the
-    # kickstart's own shell scripts are left untouched. envsubst takes the
-    # names literally, so they must not expand here.
-    # shellcheck disable=SC2016
     case "${edition}" in
-        studio)
-            name=shatteredvales-os
-            if (( check )); then
-                # Validation only: the example values are enough.
-                env_file="${HERE}/installer.env.example"
-            else
-                [[ -f "${HERE}/installer.env" ]] || die "Create installer.env from installer.env.example first."
-                if grep -q 'REPLACE_ME\|AAAA\.\.\.' "${HERE}/installer.env"; then
-                    die "installer.env still has example values; fill in the admin password hash and SSH key."
-                fi
-                env_file="${HERE}/installer.env"
-            fi
-            vars='${SV_IMAGE_REGISTRY} ${SV_IMAGE_NAME} ${SV_IMAGE_TAG} ${SV_OFFLINE_IMAGE} ${SV_LANG}
-${SV_KEYBOARD} ${SV_TIMEZONE} ${SV_TARGET_DISK} ${SV_HOSTNAME_PREFIX} ${SV_ADMIN_USER}
-${SV_ADMIN_GECOS} ${SV_ADMIN_PASSWORD_HASH} ${SV_ADMIN_SSH_PUBKEY}'
-            ;;
-        home)
-            name=shatteredvales-os-home
-            # Home builds need no personal values; an empty file keeps the
-            # container command the same for both editions.
-            env_file="${HERE}/build/empty.env"
-            mkdir -p "${HERE}/build" && : > "${env_file}"
-            vars='${SV_IMAGE_REGISTRY} ${SV_IMAGE_NAME} ${SV_IMAGE_TAG} ${SV_OFFLINE_IMAGE}'
-            ;;
+        studio) name=shatteredvales-os ;;
+        home) name=shatteredvales-os-home ;;
         *) die "--edition must be studio or home" 64 ;;
     esac
     mkdir -p "${HERE}/build"
@@ -286,7 +249,7 @@ ${SV_ADMIN_GECOS} ${SV_ADMIN_PASSWORD_HASH} ${SV_ADMIN_SSH_PUBKEY}'
     fi
 
     if (( check )); then
-        render_kickstart "${edition}" "${name}" "${channel}" "${vars}" "${env_file}" check "${payload}"
+        render_kickstart "${name}" "${channel}" check "${payload}"
         if (( offline )); then
             echo "The ${edition} offline kickstart is valid."
         else
@@ -299,13 +262,13 @@ ${SV_ADMIN_GECOS} ${SV_ADMIN_PASSWORD_HASH} ${SV_ADMIN_SSH_PUBKEY}'
         [[ "$(uname -s)" == Linux ]] || die "Offline ISOs build on Linux; use a Shattered Vales or Fedora machine." 64
         (( EUID == 0 )) || die "Offline ISOs need root: run with sudo." 64
         command -v podman >/dev/null || die "Offline ISOs need podman."
-        render_kickstart "${edition}" "${name}" "${channel}" "${vars}" "${env_file}" offline "${payload}"
+        render_kickstart "${name}" "${channel}" offline "${payload}"
         build_offline "${edition}" "${payload}" "${output}"
         mode="offline, ${variant} graphics"
     else
         [[ -n "${input}" ]] || die "Give the Fedora netinst ISO to build from (see --help)." 64
         [[ -f "${input}" ]] || die "Input ISO not found: ${input}"
-        render_kickstart "${edition}" "${name}" "${channel}" "${vars}" "${env_file}" network "" "${input}" "${output}"
+        render_kickstart "${name}" "${channel}" network "" "${input}" "${output}"
         mode="network"
     fi
     echo "Built ${HERE}/build/${output} (${edition} edition, ${channel} channel, ${mode})"
