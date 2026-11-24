@@ -35,6 +35,7 @@ readonly RCLONE_IMAGE="docker.io/rclone/rclone:1.76.0"
 readonly REMOTE="${SV_DRIVE_REMOTE:-svos-drive}"
 readonly CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/rclone"
 readonly DRIVE_ROOT="OS"
+readonly RCLONE_CONF="${CONFIG_DIR}/rclone.conf"
 
 # die
 #   Prints an error and exits.
@@ -65,6 +66,20 @@ rclone() {
         --security-opt label=disable \
         -v "${CONFIG_DIR}:/config/rclone" -v "${HERE}/build:/data:ro" \
         "${RCLONE_IMAGE}" "$@"
+}
+
+# drive_ready
+#   Tells whether the Shared Drive connection has been fully set up.
+#   Arguments: none
+#   Returns: 0 if the remote exists with a Shared Drive chosen, 1 otherwise
+drive_ready() {
+    # Setup records the Shared Drive last, so a sign-in that was interrupted
+    # (a section with no team_drive) does not count as connected.
+    awk -v section="[${REMOTE}]" '
+        $0 == section { current = 1; next }
+        /^\[/ { current = 0 }
+        current && /^team_drive = ./ { found = 1 }
+        END { exit !found }' "${RCLONE_CONF}" 2>/dev/null
 }
 
 # drive_name
@@ -105,12 +120,26 @@ drive_name() {
 setup() {
     local name="$1" drives id
     command -v jq >/dev/null || die "jq is required for the setup."
-    echo "Sign in to Google: open the http://127.0.0.1:53682/auth link that"
-    echo "appears below in this computer's browser, pick your studio account"
-    echo "and allow access. The window can be closed afterwards."
-    # stdout would print the new sign-in token; only the link (stderr) is
-    # useful to show.
-    rclone config create "${REMOTE}" drive scope=drive >/dev/null
+    local line url
+    # A half-finished earlier attempt would otherwise be kept.
+    rclone config delete "${REMOTE}" >/dev/null 2>&1 || true
+    echo "Signing in to Google. Your browser opens; pick your studio account"
+    echo "and allow access, then come back here."
+    # rclone runs in a container without a browser, so the script opens the
+    # sign-in link on this computer and hides rclone's notes about that.
+    # stdout is dropped because it would print the new sign-in token.
+    if ! rclone config create "${REMOTE}" drive scope=drive 2>&1 >/dev/null | while IFS= read -r line; do
+        if [[ "${line}" =~ (http://127\.0\.0\.1:53682/auth\?state=[A-Za-z0-9_-]+) ]]; then
+            url="${BASH_REMATCH[1]}"
+            echo "If the browser does not open, go to: ${url}"
+            xdg-open "${url}" >/dev/null 2>&1 || true
+        elif [[ "${line}" != *"Redirect URL"* && "${line}" != *"Log in and authorize"* \
+                && "${line}" != *"Waiting for code"* && "${line}" != *"Got code"* ]]; then
+            echo "${line}"
+        fi
+    done; then
+        die "Google sign-in did not finish; run the setup again."
+    fi
     drives="$(rclone backend drives "${REMOTE}:")" || die "Signed in, but listing Shared Drives failed."
     id="$(jq -r --arg name "${name}" '.[] | select(.name == $name) | .id' <<<"${drives}" | head -n1)"
     if [[ -z "${id}" ]]; then
@@ -148,7 +177,7 @@ main() {
         shopt -u nullglob
     fi
     (( ${#isos[@]} > 0 )) || die "No ISOs in build/ to publish."
-    if ! grep -qs "^\[${REMOTE}\]" "${CONFIG_DIR}/rclone.conf"; then
+    if ! drive_ready; then
         die "No Drive connection yet. Run once: ./publish-iso.sh --setup \"<Shared Drive name>\""
     fi
     (( dry_run )) && flags+=(--dry-run)

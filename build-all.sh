@@ -68,7 +68,13 @@ say() {
 #   Arguments: none
 #   Returns: 0 if the rclone remote exists, 1 otherwise
 drive_ready() {
-    grep -qs "^\[${REMOTE}\]" "${RCLONE_CONF}"
+    # Setup records the Shared Drive last, so a sign-in that was interrupted
+    # (a section with no team_drive) does not count as connected.
+    awk -v section="[${REMOTE}]" '
+        $0 == section { current = 1; next }
+        /^\[/ { current = 0 }
+        current && /^team_drive = ./ { found = 1 }
+        END { exit !found }' "${RCLONE_CONF}" 2>/dev/null
 }
 
 # verify_netinst
