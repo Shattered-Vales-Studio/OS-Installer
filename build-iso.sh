@@ -178,10 +178,15 @@ render_kickstart() {
 # write_iso_yaml
 #   Writes image-builder's boot menu and volume label for an offline ISO:
 #   one entry that starts Anaconda's graphical installer with the kickstart
-#   as its defaults. selinux=0 applies to the installer session only: its
-#   root filesystem carries no SELinux labels, and with SELinux enforcing
-#   systemd froze at boot ("Failed to allocate manager object"). The
-#   installed system is labelled and enforcing as usual.
+#   as its defaults. The installer session runs SELinux in permissive mode
+#   (enforcing=0): its root filesystem carries no SELinux labels, and with
+#   SELinux enforcing systemd froze at boot ("Failed to allocate manager
+#   object"). It is not turned off with selinux=0, for two reasons: Anaconda
+#   copies any selinux= argument onto the installed system's kernel command
+#   line (preserved_arguments in anaconda.conf), which left every installed
+#   machine with SELinux disabled; and without SELinux in the installer
+#   kernel, Anaconda's final restorecon cannot label what the install wrote
+#   (the first account's home folder, /etc). enforcing= is not copied.
 #   Arguments: $1 edition, $2 volume label
 #   Returns: 0 on success
 write_iso_yaml() {
@@ -192,7 +197,7 @@ grub2:
   timeout: 10
   entries:
     - name: "Install Shattered Vales OS (${edition^})"
-      linux: "/images/pxeboot/vmlinuz inst.stage2=hd:LABEL=${label} console=tty0 rhgb quiet inst.graphical selinux=0"
+      linux: "/images/pxeboot/vmlinuz inst.stage2=hd:LABEL=${label} console=tty0 rhgb quiet inst.graphical enforcing=0"
       initrd: "/images/pxeboot/initrd.img"
 YAML
 }

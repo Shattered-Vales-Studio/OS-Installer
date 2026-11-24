@@ -116,6 +116,28 @@ project, client ID or token to create. The sign-in is stored in
 4. On first boot the computer finishes setting itself up in the background
    (apps download for a while once it is online).
 
+### Machines installed from an older offline ISO
+
+Offline ISOs built before the SELinux fix (November 2026) installed systems
+with SELinux switched off (`selinux=0` on the kernel command line), and the
+files the install wrote, such as the first account's home folder, have no
+SELinux labels. Network ISOs are not affected. To check a machine, run
+`getenforce`: `Disabled` means it needs this repair. In a terminal, as an
+administrator:
+
+```bash
+sudo rpm-ostree kargs --delete=selinux=0 --append=enforcing=0
+systemctl reboot
+# after the restart (SELinux on, but only reporting):
+sudo restorecon -RF /etc /var
+sudo rpm-ostree kargs --delete=enforcing=0
+systemctl reboot
+```
+
+After the second restart `getenforce` says `Enforcing`. The relabel takes
+seconds; a "Could not open … No such file" line for a file that vanished
+while it ran is harmless.
+
 ## Moving an existing Fedora Silverblue machine instead
 
 No USB stick needed; see `sv-migrate.sh` in each edition's README.
