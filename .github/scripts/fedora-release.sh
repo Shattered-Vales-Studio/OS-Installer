@@ -92,11 +92,14 @@ Fedora ${to} is released and its tool and bootc images are published. Branch \`$
 **[Open the pull request](https://github.com/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1)** (that also runs the kickstart checks).
 
 Before merging:
-- [ ] The Studio and Home image repos have moved to Fedora ${to} (their own issues), so installers and images match
+- [ ] Core Edition has moved to Fedora ${to} and been promoted, and Home and Studio have rebuilt on it, so installers and images match
 - [ ] CI validates the kickstarts with the Fedora ${to} validator
-- [ ] Download Fedora Everything netinst ${to} and build both network ISOs
-- [ ] Build an offline ISO on a Linux machine (\`sudo ./build-iso.sh --edition home --offline --variant base\`)
+- [ ] Build the network ISOs (\`./build-all.sh --network-only\`)
+- [ ] Build an offline ISO on a Linux machine (\`./build-all.sh --edition home --offline-only --variant base\`)
 - [ ] Install from a network ISO and from the offline ISO (networking off) in VMs
+
+After merging:
+- [ ] Run the **release-network-isos** workflow (Actions tab) to publish the Fedora ${to} network installers
 BODY
 }
 
@@ -107,7 +110,7 @@ BODY
 main() {
     local from to branch dry_run=0
     [[ "${1:-}" == --dry-run ]] && dry_run=1
-    from="$(current_version)" || { echo "Could not read image-version from recipes/recipe-base.yml" >&2; exit 1; }
+    from="$(current_version)" || { echo "Could not read the Fedora release from FEDORA_TOOLS in build-iso.sh" >&2; exit 1; }
     to=$(( from + 1 ))
     branch="fedora-${to}"
     echo "Building on Fedora ${from}; checking Fedora ${to}."

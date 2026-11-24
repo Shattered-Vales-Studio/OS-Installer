@@ -1,5 +1,5 @@
 # =============================================================================
-# Shattered Vales OS - guided installer kickstart (Studio and Home editions)
+# Shattered Vales OS - guided installer kickstart (Core, Studio and Home editions)
 #
 # Only the operating system image is preset; nothing ties an installer to a
 # particular site or organization. The installer's own screens ask for the
