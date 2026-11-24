@@ -146,12 +146,15 @@ lane() {
 
 # keep_sudo_alive
 #   Refreshes the sudo timestamp in the background until this script ends,
-#   because offline builds run longer than sudo's default five minutes.
+#   because offline builds run longer than sudo's default five minutes. The
+#   loop is stopped on exit so it never outlives the script.
 #   Arguments: none
 #   Returns: 0 always
 keep_sudo_alive() {
     local parent=$$
     ( while kill -0 "${parent}" 2>/dev/null; do sudo -n -v 2>/dev/null; sleep 50; done ) &
+    # shellcheck disable=SC2064 # the loop's PID is fixed now, on purpose
+    trap "kill $! 2>/dev/null" EXIT
 }
 
 # main
@@ -161,7 +164,7 @@ keep_sudo_alive() {
 #   Returns: see Exit codes
 main() {
     local publish=1 channel=latest netinst iso rc failed=0 started=${SECONDS}
-    local -a built=()
+    local -a built=() lanes=()
     while (( $# )); do
         case "$1" in
             --channel) channel="${2:?--channel needs latest or testing}"; shift ;;
@@ -192,8 +195,12 @@ main() {
     RESULTS="$(mktemp -d)"
     # One lane per edition: each machine builds two ISOs at once at most.
     lane studio "${netinst}" nvidia base &
+    lanes+=($!)
     lane home "${netinst}" base nvidia &
-    wait
+    lanes+=($!)
+    # Only the build lanes: a bare `wait` would also wait for the sudo
+    # keep-alive loop, which runs until this script ends.
+    wait "${lanes[@]}"
 
     for iso in "${RESULTS}"/*; do
         rc="$(cat "${iso}")"
