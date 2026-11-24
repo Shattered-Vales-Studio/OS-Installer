@@ -210,6 +210,22 @@ IsFinal=True
 STAMP
 }
 
+# stage_theme
+#   Stages the installer theme in the build folder: the stylesheet and
+#   settings from offline/theme, and the SV mark copied out of the payload
+#   image so the artwork always matches the edition being installed.
+#   Arguments: $1 payload image ref (already pulled)
+#   Returns: non-zero if the payload has no logo or copying fails
+stage_theme() {
+    local payload="$1" container
+    mkdir -p "${OFFLINE_DIR}/theme"
+    cp "${HERE}"/offline/theme/* "${OFFLINE_DIR}/theme/"
+    container="$(podman create "${payload}")"
+    podman cp "${container}:/usr/share/icons/hicolor/256x256/apps/shatteredvales-logo.png" \
+        "${OFFLINE_DIR}/theme/logo.png"
+    podman rm "${container}" >/dev/null
+}
+
 # build_offline
 #   Builds the offline ISO: pulls the payload into root's container storage,
 #   builds the installer environment with the rendered kickstart, and runs
@@ -228,6 +244,7 @@ build_offline() {
     write_buildstamp "${edition}"
     say "Downloading ${payload} into root's container storage"
     podman pull "${payload}"
+    stage_theme "${payload}"
     say "Building the installer environment (${env_tag})"
     podman build --network host -t "${env_tag}" -f "${HERE}/offline/Containerfile" "${OFFLINE_DIR}"
 

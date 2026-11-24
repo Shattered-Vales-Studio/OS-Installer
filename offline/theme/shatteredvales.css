@@ -1,0 +1,116 @@
+/*
+ * Shattered Vales OS installer theme (Anaconda GTK 3).
+ *
+ * The site's black and gold: near-black surfaces, the SV mark on the
+ * sidebar, and brand gold for the product title and primary actions.
+ * Gold #c5a059 on #050505 is 8.1:1 and #050505 on gold is the same, both
+ * WCAG AAA. The window itself uses Adwaita's dark variant
+ * (gtk-application-prefer-dark-theme in /etc/gtk-3.0/settings.ini); this
+ * file only overrides what Anaconda and Adwaita colour blue.
+ *
+ * Loaded through custom_stylesheet in /etc/anaconda/conf.d, at a higher
+ * priority than Anaconda's own stylesheet and the Fedora profile's.
+ */
+
+@define-color sv_bg #050505;
+@define-color sv_glow #111111;
+@define-color sv_surface #0a0a0a;
+@define-color sv_border #222222;
+@define-color sv_gold #c5a059;
+@define-color sv_gold_light #e0cba0;
+@define-color sv_text #f8f8f8;
+
+/* Sidebar: the website's radial page gradient with the SV mark near the
+ * top. The product-logo layer is unused. */
+.logo-sidebar {
+    background-color: @sv_bg;
+    background-image: radial-gradient(circle at 50% 25%, @sv_glow, @sv_bg 70%);
+}
+
+.logo {
+    background-image: url('/usr/share/anaconda/pixmaps/shatteredvales/logo.png');
+    background-size: 128px 128px;
+    background-position: 50% 32px;
+    background-repeat: no-repeat;
+    background-color: transparent;
+}
+
+.product-logo {
+    background-image: none;
+    background-color: transparent;
+}
+
+/* Top bar of every screen: spoke title on the left, product title and
+ * keyboard layout on the right. */
+AnacondaSpokeWindow #nav-box {
+    background-color: @sv_surface;
+    background-image: none;
+    border-bottom: 1px solid @sv_border;
+    color: @sv_gold;
+}
+
+AnacondaSpokeWindow #nav-box label {
+    color: @sv_gold;
+}
+
+/* Primary actions (Continue, Begin Installation, Reboot System) in gold
+ * with near-black text, matching the site's buttons. */
+button.suggested-action,
+.suggested-action {
+    background-image: none;
+    background-color: @sv_gold;
+    border-color: #b38728;
+    color: @sv_bg;
+    text-shadow: none;
+    box-shadow: none;
+}
+
+button.suggested-action:hover,
+.suggested-action:hover {
+    background-color: @sv_gold_light;
+}
+
+button.suggested-action label,
+.suggested-action label {
+    color: @sv_bg;
+}
+
+button.suggested-action:disabled,
+.suggested-action:disabled {
+    background-color: @sv_border;
+    color: #a3a3a3;
+}
+
+/* Progress, selection and toggles in gold instead of Adwaita blue. */
+progressbar progress {
+    background-image: none;
+    background-color: @sv_gold;
+    border-color: @sv_gold;
+}
+
+checkbutton check:checked,
+radiobutton radio:checked {
+    background-image: none;
+    background-color: @sv_gold;
+    border-color: @sv_gold;
+    color: @sv_bg;
+}
+
+switch:checked {
+    background-image: none;
+    background-color: @sv_gold;
+    border-color: #b38728;
+}
+
+*:selected,
+treeview.view:selected,
+list row:selected {
+    background-color: @sv_gold;
+    color: @sv_bg;
+}
+
+entry:focus,
+spinbutton:focus {
+    border-color: @sv_gold;
+    box-shadow: inset 0 0 0 1px @sv_gold;
+}
