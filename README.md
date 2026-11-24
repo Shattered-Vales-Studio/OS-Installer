@@ -60,6 +60,28 @@ and its `.sha256` land in `build/`.
 from file** (the ISO in `build/`), **Select target** (the USB stick),
 **Flash!** Fedora Media Writer and `dd` work too.
 
+## Publishing to the team drive
+
+`publish-iso.sh` uploads ISOs to the internal Shared Drive, one file per
+Fedora release, edition and variant (a newer build of the same one replaces
+it):
+
+```
+OS/Studio/ShatteredValesOS-Studio-NVIDIA-F45-Offline.iso   (+ .sha256)
+OS/Studio/ShatteredValesOS-Studio-F45-Network.iso
+OS/Home/ShatteredValesOS-Home-Base-F45-Offline.iso
+```
+
+It runs rclone from its container image, as your normal account (not sudo):
+
+```bash
+./publish-iso.sh --setup      # once per machine: connect to the Shared Drive
+./publish-iso.sh              # upload every ISO in build/
+./publish-iso.sh --dry-run    # show what would be uploaded
+```
+
+The Drive sign-in is stored in `~/.config/rclone` on that machine only.
+
 ## Install
 
 1. Boot from the USB stick (usually F12, F11, F7 or Esc at power-on picks the
