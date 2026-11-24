@@ -34,10 +34,13 @@ else
     IMAGE="${REGISTRY}/${NAME}:${TAG}"
 fi
 
-# Offline ISOs install the embedded copy and record the registry image as
-# the one to update from; network ISOs download it during the install.
+# Offline ISOs install the copy in the installer's own container storage;
+# network ISOs download it during the install. Both are then pointed at the
+# signed registry image by %post below. Offline uses ostreecontainer rather
+# than Anaconda's bootc source, which always demands a network connection
+# and blocked offline installs at "Begin Installation".
 if [[ -n "${OFFLINE_IMAGE}" ]]; then
-    echo "bootc --source-imgref containers-storage:${IMAGE} --target-imgref ${IMAGE}" > /tmp/sv-source.ks
+    echo "ostreecontainer --url=${IMAGE} --transport=containers-storage --no-signature-verification" > /tmp/sv-source.ks
 else
     echo "ostreecontainer --url=${IMAGE} --transport=registry --no-signature-verification" > /tmp/sv-source.ks
 fi

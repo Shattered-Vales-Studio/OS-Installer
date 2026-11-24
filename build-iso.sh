@@ -26,7 +26,10 @@
 #   ./build-iso.sh --edition studio|home [--channel latest|testing] \
 #       <Fedora-Everything-netinst-x86_64-45-*.iso> [output.iso]
 #   sudo ./build-iso.sh --edition studio|home --offline --variant base|nvidia \
-#       [--channel latest|testing]
+#       [--channel latest|testing] [--keep-cache]
+#       --keep-cache keeps the downloaded image, installer environment and
+#       image-builder cache for a quick rebuild; by default a successful
+#       offline build removes them and leaves only the ISO and its checksum.
 #   ./build-iso.sh --edition studio|home [--offline] --check
 #       Render and validate the kickstart only (no ISO; used by CI).
 #
@@ -56,7 +59,12 @@ BUILD_LOG=""
 # share. A lock per build stops the same one from running twice.
 OFFLINE_DIR=""
 STORE_DIR=""
+# Set by --keep-cache.
+KEEP_CACHE=0
 readonly FEDORA_TOOLS="registry.fedoraproject.org/fedora:45"
+# The Fedora release every ISO is built from, taken from the tools tag so
+# the fedora-release workflow's bump changes it in one place.
+readonly FEDORA_RELEASE="${FEDORA_TOOLS##*:}"
 # Fedora mirrors sometimes time out mid-build; retry patiently rather than
 # fail a build that has already downloaded several GB.
 readonly DNF_RETRY="--setopt=retries=10 --setopt=timeout=120 --setopt=minrate=1"
@@ -139,7 +147,7 @@ render_kickstart() {
             # the validator representative stand-ins so it can check the
             # whole kickstart, including the included commands.
             if [ -n \"\${SV_OFFLINE_IMAGE}\" ]; then
-                printf '%s\\n' \"bootc --source-imgref containers-storage:\${SV_OFFLINE_IMAGE} --target-imgref \${SV_OFFLINE_IMAGE}\" > /tmp/sv-source.ks
+                printf '%s\\n' \"ostreecontainer --url=\${SV_OFFLINE_IMAGE} --transport=containers-storage --no-signature-verification\" > /tmp/sv-source.ks
             else
                 printf '%s\\n' 'ostreecontainer --url=registry.example/os:latest --transport=registry --no-signature-verification' > /tmp/sv-source.ks
             fi
@@ -165,7 +173,10 @@ render_kickstart() {
 # write_iso_yaml
 #   Writes image-builder's boot menu and volume label for an offline ISO:
 #   one entry that starts Anaconda's graphical installer with the kickstart
-#   as its defaults.
+#   as its defaults. selinux=0 applies to the installer session only: its
+#   root filesystem carries no SELinux labels, and with SELinux enforcing
+#   systemd froze at boot ("Failed to allocate manager object"). The
+#   installed system is labelled and enforcing as usual.
 #   Arguments: $1 edition, $2 volume label
 #   Returns: 0 on success
 write_iso_yaml() {
@@ -176,9 +187,27 @@ grub2:
   timeout: 10
   entries:
     - name: "Install Shattered Vales OS (${edition^})"
-      linux: "/images/pxeboot/vmlinuz inst.stage2=hd:LABEL=${label} console=tty0 rhgb quiet inst.graphical"
+      linux: "/images/pxeboot/vmlinuz inst.stage2=hd:LABEL=${label} console=tty0 rhgb quiet inst.graphical selinux=0"
       initrd: "/images/pxeboot/initrd.img"
 YAML
+}
+
+# write_buildstamp
+#   Writes Anaconda's product file for the offline installer environment, so
+#   it is titled for the edition and treated as a final release.
+#   Arguments: $1 edition
+#   Returns: 0 on success
+write_buildstamp() {
+    local variant_name="Studio"
+    [[ "$1" == home ]] && variant_name="Home Edition"
+    cat > "${OFFLINE_DIR}/buildstamp" <<STAMP
+[Main]
+Product=Shattered Vales OS
+Version=${FEDORA_RELEASE}
+Variant=${variant_name}
+BugURL=https://github.com/Shattered-Vales-Studio/OS-Installer/issues
+IsFinal=True
+STAMP
 }
 
 # build_offline
@@ -196,6 +225,7 @@ build_offline() {
     work="${OFFLINE_DIR}/output"
 
     write_iso_yaml "${edition}" "${label}"
+    write_buildstamp "${edition}"
     say "Downloading ${payload} into root's container storage"
     podman pull "${payload}"
     say "Building the installer environment (${env_tag})"
@@ -222,6 +252,13 @@ build_offline() {
     mv "${iso}" "${HERE}/build/${output}"
     rm -rf "${work}"
     (cd "${HERE}/build" && sha256sum "${output}" > "${output}.sha256")
+    if (( ! KEEP_CACHE )); then
+        say "Removing build caches (use --keep-cache to keep them)"
+        rm -rf "${OFFLINE_DIR}" "${STORE_DIR}"
+        # Another build may still use the same payload; podman then refuses
+        # to remove it, which is fine.
+        podman rmi "${env_tag}" "${payload}" >/dev/null 2>&1 || true
+    fi
     if [[ -n "${SUDO_UID:-}" ]]; then
         # Built with sudo: hand the result back to the person who ran it.
         chown "${SUDO_UID}:${SUDO_GID:-${SUDO_UID}}" "${HERE}/build/${output}" "${HERE}/build/${output}.sha256"
@@ -258,6 +295,7 @@ main() {
             --channel) channel="${2:?--channel needs latest or testing}"; shift ;;
             --variant) variant="${2:?--variant needs base or nvidia}"; shift ;;
             --offline) offline=1 ;;
+            --keep-cache) KEEP_CACHE=1 ;;
             --check) check=1 ;;
             -h|--help) sed -n '/^# Usage:/,/^#$/p' "$0" | sed 's/^# \{0,3\}//'; exit 0 ;;
             -*) die "Unknown option: $1" 64 ;;
@@ -282,9 +320,9 @@ main() {
             nvidia) payload="${REGISTRY}/${name}-nvidia:${channel}" ;;
             *) die "--offline needs --variant base or nvidia" 64 ;;
         esac
-        output="${output:-shatteredvales-${edition}-${variant}-offline.iso}"
+        output="${output:-shatteredvales-${edition}-${variant}-f${FEDORA_RELEASE}-offline.iso}"
     else
-        output="${output:-shatteredvales-${edition}-installer.iso}"
+        output="${output:-shatteredvales-${edition}-f${FEDORA_RELEASE}-installer.iso}"
     fi
 
     if (( check )); then

@@ -26,6 +26,10 @@ RUN mkdir -p /boot/efi && cp -ra /usr/lib/efi/*/*/EFI /boot/efi
 # Anaconda reads as its defaults.
 COPY iso.yaml /usr/lib/image-builder/bootc/iso.yaml
 COPY ks.cfg /usr/share/anaconda/interactive-defaults.ks
+# Anaconda takes the product name and release state from /.buildstamp;
+# without it the installer is titled for the base container and shows a
+# "pre-release / testing" warning before anything else.
+COPY buildstamp /.buildstamp
 
 # Turn the container into an installer: boot straight into Anaconda as an
 # "install" user, give it a shell on the second console, and drop pieces
