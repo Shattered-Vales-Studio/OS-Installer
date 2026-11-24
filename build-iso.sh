@@ -45,6 +45,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly HERE
 readonly REGISTRY="ghcr.io/shattered-vales-studio"
 readonly OFFLINE_DIR="${HERE}/build/offline"
+readonly STORE_DIR="${HERE}/build/image-builder-store"
 readonly FEDORA_TOOLS="registry.fedoraproject.org/fedora:45"
 # Fedora mirrors sometimes time out mid-build; retry patiently rather than
 # fail a build that has already downloaded several GB.
@@ -186,9 +187,14 @@ build_offline() {
     podman build --network host -t "${env_tag}" -f "${HERE}/offline/Containerfile" "${OFFLINE_DIR}"
 
     say "Building the ISO with image-builder"
-    rm -rf "${work}" && mkdir -p "${work}"
+    rm -rf "${work}" && mkdir -p "${work}" "${STORE_DIR}"
+    # image-builder labels its cache (store) for SELinux, which the
+    # container's own overlay filesystem cannot hold ("chcon: Operation not
+    # supported" on SELinux-enforcing hosts), so the store lives on the
+    # host's disk. Kept between builds, it also makes later ISOs faster.
     podman run --rm --privileged --network host --security-opt label=type:unconfined_t \
         -v /var/lib/containers/storage:/var/lib/containers/storage \
+        -v "${STORE_DIR}:/var/cache/image-builder/store" \
         -v /dev:/dev -v "${work}:/output" "${FEDORA_TOOLS}" bash -euo pipefail -c "
             dnf -y -q ${DNF_RETRY} install image-builder osbuild osbuild-depsolve-dnf podman >/dev/null
             image-builder build --bootc-ref '${env_tag}' \
