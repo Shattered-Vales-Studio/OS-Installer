@@ -47,7 +47,9 @@ die() {
 # rclone
 #   Runs rclone in its container with the Drive configuration and the build
 #   folder mounted. Host networking lets the one-time browser sign-in reach
-#   rclone's local callback.
+#   rclone's local callback. SELinux separation is off for this container
+#   rather than relabelling the folders, because build/ belongs to root
+#   after sudo builds and a normal user cannot relabel it.
 #   Arguments: rclone arguments
 #   Returns: rclone's exit status
 rclone() {
@@ -59,7 +61,8 @@ rclone() {
     fi
     mkdir -p "${CONFIG_DIR}"
     podman run --rm "${terminal[@]}" --network host --userns keep-id \
-        -v "${CONFIG_DIR}:/config/rclone:Z" -v "${HERE}/build:/data:ro,Z" \
+        --security-opt label=disable \
+        -v "${CONFIG_DIR}:/config/rclone" -v "${HERE}/build:/data:ro" \
         "${RCLONE_IMAGE}" "$@"
 }
 

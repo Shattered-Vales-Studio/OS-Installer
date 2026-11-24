@@ -33,6 +33,24 @@ sets those things up on the installer's screens.
 
 You need a USB stick of 4 GB (network) or 8 GB (offline) or more.
 
+**Everything at once** (Linux; about 60 GB free): one command builds all
+six ISOs (network for Studio and Home, offline for each edition in base and
+NVIDIA) and publishes them to the team drive. Run it as your normal
+account; it asks for your sudo password once, sets up the Drive connection
+first if needed, downloads and checks Fedora's netinst ISO itself, and
+builds the two editions side by side:
+
+```bash
+./build-all.sh                 # build all six and publish
+./build-all.sh --no-publish    # build only
+./build-all.sh --channel testing
+```
+
+Each ISO has its own log in `build/`. A build that fails is listed at the
+end and is not published; the others still are.
+
+To build a single ISO instead:
+
 **Network ISO** (Docker or Podman, macOS or Linux):
 
 1. Download Fedora's network installer, **Fedora Everything netinst x86_64**,
