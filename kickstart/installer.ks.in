@@ -75,4 +75,35 @@ reboot --eject
 # boot.
 rootpw --lock
 
+# -----------------------------------------------------------------------------
+# Image staging space: the image is unpacked through a folder on the target
+# disk instead of the installer's own /var/tmp.
+# -----------------------------------------------------------------------------
+# ostree writes each image layer in full to /var/tmp before importing it. On
+# an installer stick /var/tmp is part of the live system's small root
+# filesystem (about 1.6 GB), so any layer bigger than that fails the install
+# with "no space left on device", whatever the machine's RAM. %pre-install
+# runs after the chosen disk is formatted and mounted at /mnt/sysimage (the
+# physical root Anaconda deploys into) and before the image is deployed.
+%pre-install --interpreter=/usr/bin/bash --erroronfail --log=/tmp/sv-pre-install.log
+set -euo pipefail
+staging=/mnt/sysimage/.sv-install-tmp
+mkdir -p "${staging}"
+chmod 1777 "${staging}"
+mount --bind "${staging}" /var/tmp
+echo "Staging image layers in ${staging}"
+%end
+
 %include /tmp/sv-post.ks
+
+# Releases the staging folder before Anaconda unmounts the disk (a bind mount
+# still in place would keep it busy) and deletes it, so the layers do not
+# stay behind on the installed disk.
+%post --nochroot --interpreter=/usr/bin/bash --log=/tmp/sv-post-cleanup.log
+set -euo pipefail
+staging=/mnt/sysimage/.sv-install-tmp
+if mountpoint -q /var/tmp; then
+    umount /var/tmp
+fi
+rm -rf "${staging}"
+%end

@@ -65,6 +65,18 @@ RUN theme=/usr/share/icons/ShatteredValesInstaller \
     && ls "${theme}/symbolic" | grep -q . \
     && gtk-update-icon-cache -q -f "${theme}"
 
+# Light gold text links. Anaconda's screen definitions colour links such as
+# "Full disk summary and boot loader..." and "Refresh..." pure blue through
+# a fixed text attribute, which CSS cannot override and which is unreadable
+# on the dark window. #e0cba0 on the dark page is 7.7:1 (WCAG AAA). The
+# check fails the build if a future Anaconda stops matching, rather than
+# quietly shipping blue links again.
+RUN gui="$(echo /usr/lib64/python3*/site-packages/pyanaconda/ui/gui)" \
+    && grep -q '#00000000ffff' "${gui}/spokes/storage.glade" \
+    && find "${gui}" -name '*.glade' -exec \
+        sed -i 's/name="foreground" value="#00000000ffff"/name="foreground" value="#e0cba0"/g' {} + \
+    && ! grep -rq '#00000000ffff' --include='*.glade' "${gui}"
+
 # Turn the container into an installer: boot straight into Anaconda as an
 # "install" user, give it a shell on the second console, and drop pieces
 # meant for an installed system.
