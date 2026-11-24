@@ -1,0 +1,54 @@
+# Installer environment for offline Shattered Vales OS ISOs, built by
+# `build-iso.sh --offline`. image-builder's generic-iso type turns this
+# container into the ISO's live system and copies the OS image to install
+# (the payload) into its container storage, so installing needs no network.
+# The steps follow osbuild's "Anaconda GTK installer" example for bootc ISOs
+# (https://osbuild.org/docs/developer-guide/projects/image-builder/advanced/bootc/isos/),
+# on the Fedora release the OS images are built from.
+ARG BASE=quay.io/fedora/fedora-bootc:45
+FROM ${BASE}
+
+# Anaconda with its GTK interface and boot pieces, the fonts its screens
+# need, and the tools image-builder runs inside this container.
+RUN dnf5 install -qy \
+        anaconda anaconda-install-img-deps anaconda-dracut \
+        dracut-config-generic dracut-network net-tools pciutils \
+        grub2-efi-x64-cdboot plymouth \
+        default-fonts-core-sans default-fonts-other-sans google-noto-sans-cjk-fonts \
+        xorrisofs squashfs-tools jq \
+    && dnf5 clean all
+
+# The ISO's UEFI boot files come from /boot/efi of this container.
+RUN mkdir -p /boot/efi && cp -ra /usr/lib/efi/*/*/EFI /boot/efi
+
+# Boot menu and volume label (iso.yaml), and the edition's kickstart, which
+# Anaconda reads as its defaults.
+COPY iso.yaml /usr/lib/image-builder/bootc/iso.yaml
+COPY ks.cfg /usr/share/anaconda/interactive-defaults.ks
+
+# Turn the container into an installer: boot straight into Anaconda as an
+# "install" user, give it a shell on the second console, and drop pieces
+# meant for an installed system.
+RUN echo 'install:x:0:0:root:/root:/usr/libexec/anaconda/run-anaconda' >> /etc/passwd \
+    && echo 'install::14438:0:99999:7:::' >> /etc/shadow \
+    && passwd -d root \
+    && mv /usr/share/anaconda/list-harddrives-stub /usr/bin/list-harddrives \
+    && mv /usr/share/dnf5/repos.d /etc/anaconda.repos.d \
+    && ln -sf /usr/lib/systemd/system/anaconda.target /etc/systemd/system/default.target \
+    && rm -f /usr/lib/systemd/system-generators/systemd-gpt-auto-generator \
+    && ln -sf /usr/lib/systemd/system/anaconda-shell@.service /etc/systemd/system/autovt@.service \
+    && mkdir -p /etc/systemd/logind.conf.d \
+    && printf '[Login]\nReserveVT=2\n' > /etc/systemd/logind.conf.d/anaconda-shell.conf
+
+# Anaconda runs as root; PipeWire refuses root sessions unless allowed,
+# and the installer's screens need it for sound and screen readers.
+RUN for unit in pipewire.service pipewire.socket; do \
+        mkdir -p "/usr/lib/systemd/user/${unit}.d" \
+        && printf '[Unit]\nConditionUser=\n' > "/usr/lib/systemd/user/${unit}.d/allowroot.conf"; \
+    done
+
+# Rebuild the initramfs with Anaconda's dracut module so the ISO boots into
+# the installer.
+RUN kver="$(ls /usr/lib/modules | head -n1)" \
+    && env DRACUT_NO_XATTR=1 dracut --force --zstd --reproducible --no-hostonly \
+        --add anaconda "/usr/lib/modules/${kver}/initramfs.img" "${kver}"

@@ -23,3 +23,7 @@ jobs:
         run: ./build-iso.sh --edition studio --check
       - name: Validate Home kickstart
         run: ./build-iso.sh --edition home --check
+      - name: Validate offline kickstarts
+        run: |
+          ./build-iso.sh --edition studio --offline --check
+          ./build-iso.sh --edition home --offline --check
