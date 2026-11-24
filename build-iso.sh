@@ -119,10 +119,10 @@ container_cli() {
 render_kickstart() {
     local name="$1" channel="$2" mode="$3" payload="${4:-}" input="${5:-}" output="${6:-}"
     local iso_name="" cli
-    local -a mounts=(-v "${HERE}:/work:Z")
+    local -a mounts=(-v "${HERE}:/work")
     if [[ "${mode}" == network ]]; then
         iso_name="$(basename "${input}")"
-        mounts+=(-v "$(cd "$(dirname "${input}")" && pwd):/iso:ro,Z")
+        mounts+=(-v "$(cd "$(dirname "${input}")" && pwd):/iso:ro")
     fi
     if [[ "${mode}" == offline ]]; then cli="$(container_cli podman)"; else cli="$(container_cli)"; fi
 
@@ -130,8 +130,13 @@ render_kickstart() {
     # access, hence --privileged. Host networking makes the container resolve
     # names exactly like the machine: root's bridged container network
     # cannot reach some host DNS setups (Tailscale's 100.100.100.100), which
-    # failed builds with "could not resolve host".
+    # failed builds with "could not resolve host". SELinux separation is
+    # turned off for this throwaway container instead of relabelling the
+    # mounted folders: relabelling fails on files owned by another user
+    # (such as root's offline build folders) and would change labels on
+    # the user's own files.
     "${cli}" run --rm --privileged --network host --platform linux/amd64 \
+        --security-opt label=disable \
         "${mounts[@]}" -w /work \
         -e SUBST_VARS="${SUBST_VARS}" -e SV_IMAGE_REGISTRY="${REGISTRY}" \
         -e SV_IMAGE_NAME="${name}" -e SV_IMAGE_TAG="${channel}" \
@@ -210,6 +215,22 @@ IsFinal=True
 STAMP
 }
 
+# stage_theme
+#   Stages the installer theme in the build folder: the stylesheet and
+#   settings from offline/theme, and the SV mark copied out of the payload
+#   image so the artwork always matches the edition being installed.
+#   Arguments: $1 payload image ref (already pulled)
+#   Returns: non-zero if the payload has no logo or copying fails
+stage_theme() {
+    local payload="$1" container
+    mkdir -p "${OFFLINE_DIR}/theme"
+    cp "${HERE}"/offline/theme/* "${OFFLINE_DIR}/theme/"
+    container="$(podman create "${payload}")"
+    podman cp "${container}:/usr/share/icons/hicolor/256x256/apps/shatteredvales-logo.png" \
+        "${OFFLINE_DIR}/theme/logo.png"
+    podman rm "${container}" >/dev/null
+}
+
 # build_offline
 #   Builds the offline ISO: pulls the payload into root's container storage,
 #   builds the installer environment with the rendered kickstart, and runs
@@ -228,6 +249,7 @@ build_offline() {
     write_buildstamp "${edition}"
     say "Downloading ${payload} into root's container storage"
     podman pull "${payload}"
+    stage_theme "${payload}"
     say "Building the installer environment (${env_tag})"
     podman build --network host -t "${env_tag}" -f "${HERE}/offline/Containerfile" "${OFFLINE_DIR}"
 
@@ -310,6 +332,11 @@ main() {
         *) die "--edition must be studio or home" 64 ;;
     esac
     mkdir -p "${HERE}/build"
+    # Under sudo the build folder still belongs to the person who ran it, so
+    # they can read logs, publish ISOs and build without sudo later.
+    if [[ -n "${SUDO_UID:-}" ]]; then
+        chown "${SUDO_UID}:${SUDO_GID:-${SUDO_UID}}" "${HERE}/build"
+    fi
 
     if (( offline )); then
         if (( check )); then
@@ -352,6 +379,9 @@ main() {
         [[ -n "${input}" ]] || die "Give the Fedora netinst ISO to build from (see --help)." 64
         [[ -f "${input}" ]] || die "Input ISO not found: ${input}"
         render_kickstart "${name}" "${channel}" network "" "${input}" "${output}"
+        if [[ -n "${SUDO_UID:-}" ]]; then
+            chown "${SUDO_UID}:${SUDO_GID:-${SUDO_UID}}" "${HERE}/build/${output}" "${HERE}/build/${output}.sha256"
+        fi
         mode="network"
     fi
     echo "Built ${HERE}/build/${output} (${edition} edition, ${channel} channel, ${mode})"

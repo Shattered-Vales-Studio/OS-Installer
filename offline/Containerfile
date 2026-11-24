@@ -38,6 +38,13 @@ COPY ks.cfg /usr/share/anaconda/interactive-defaults.ks
 # "pre-release / testing" warning before anything else.
 COPY buildstamp /.buildstamp
 
+# Black and gold theme. The SV mark (theme/logo.png) is taken from the
+# payload image by build-iso.sh, so the installer always shows the
+# edition's own artwork.
+COPY theme/shatteredvales.css theme/logo.png /usr/share/anaconda/pixmaps/shatteredvales/
+COPY theme/50-shatteredvales.conf /etc/anaconda/conf.d/50-shatteredvales.conf
+COPY theme/settings.ini /etc/gtk-3.0/settings.ini
+
 # Turn the container into an installer: boot straight into Anaconda as an
 # "install" user, give it a shell on the second console, and drop pieces
 # meant for an installed system.
