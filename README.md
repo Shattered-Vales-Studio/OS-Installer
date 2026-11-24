@@ -1,13 +1,18 @@
 # Shattered Vales OS Installer
 
-Builds USB installers for both editions of Shattered Vales OS:
+Builds USB installers for every edition of Shattered Vales OS:
 
 | Edition | Image | For |
 |---|---|---|
+| **Core** | [`shatteredvales-os-core`](https://github.com/Shattered-Vales-Studio/OS-Linux-FedoraSB-ShatteredValesOS_CoreEdition) | The plain Shattered Vales desktop every edition builds on |
 | **Studio** | [`shatteredvales-os`](https://github.com/Shattered-Vales-Studio/OS-Linux-FedoraSB-ShatteredValesOS) | Developer workstations |
 | **Home** | [`shatteredvales-os-home`](https://github.com/Shattered-Vales-Studio/OS-Linux-FedoraSB-ShatteredValesOS_HomeEdition) | Family computers |
 
-Both install the same guided way with Fedora's installer (Anaconda): it asks
+**Just want a USB stick?** Download a network installer from the
+[latest release](https://github.com/Shattered-Vales-Studio/OS-Installer/releases/latest)
+and write it with balenaEtcher (see [Write the stick](#write-the-stick)).
+
+Every edition installs the same guided way with Fedora's installer (Anaconda): it asks
 for the language, the network and the computer's name, which disk to use,
 and the first account, which becomes the administrator. If that account
 screen is skipped, the first boot asks instead (Home Edition then continues
@@ -29,80 +34,65 @@ sets those things up on the installer's screens.
 | Needs | Internet during the install | Nothing; updates download afterwards |
 | Builds on | macOS or Linux, with Docker or Podman | Linux as root, with Podman |
 
-## Build a USB stick
+## Released network installers
+
+Network ISOs for every edition are published as
+[GitHub releases](https://github.com/Shattered-Vales-Studio/OS-Installer/releases)
+with their `.sha256` files. They always install the newest signed image, so
+a release only needs replacing when the installer changes or Fedora moves to
+a new release. To publish one: **Actions** > **release-network-isos** >
+**Run workflow** (pick the channel, optionally add a note; tick *draft* to
+try the workflow without publishing). It downloads and checks Fedora's
+netinst ISO, builds the Core, Studio and Home network ISOs and creates a
+release tagged `f<release>-<date>`, marked Latest.
+
+## Build USB installers yourself
+
+Offline ISOs are not released (each is several GB, over GitHub's 2 GiB
+limit); whoever needs one builds it with `build-all.sh`. Nothing is uploaded
+anywhere: finished ISOs and their checksums land in a folder you can open,
+`~/ShatteredValesOS-ISOs/` by default, named like
+`ShatteredValesOS-Home-Base-F45-Offline.iso` or
+`ShatteredValesOS-Core-F45-Network.iso`. A newer build replaces the older
+file of the same name.
 
 You need a USB stick of 4 GB (network) or 8 GB (offline) or more.
 
-**Everything at once** (Linux; about 60 GB free): one command builds all
-six ISOs (network for Studio and Home, offline for each edition in base and
-NVIDIA), and publishes them to the team drive when the machine is connected
-to it (see below; without that, the ISOs simply stay in `build/`). Run it as
-your normal account; it asks for your sudo password once, downloads and
-checks Fedora's netinst ISO itself, and builds the two editions side by
-side:
+**One command** (Linux; Docker or Podman; offline ISOs need about 25 GB free
+each while building): run it as your normal account; it asks for your sudo
+password once, downloads and checks Fedora's netinst ISO itself
+(`fetch-netinst.sh`), and builds two ISOs at a time:
 
 ```bash
-./build-all.sh                 # build all six and publish
-./build-all.sh --no-publish    # build only
-./build-all.sh --channel testing
-```
-
-Each ISO has its own log in `build/`. A build that fails is listed at the
-end and is not published; the others still are.
-
-To build a single ISO instead:
-
-**Network ISO** (Docker or Podman, macOS or Linux):
-
-1. Download Fedora's network installer, **Fedora Everything netinst x86_64**,
-   for the same Fedora release as the images (currently 45) from
-   <https://fedoraproject.org/misc/#everything>, and check it against the
-   CHECKSUM file next to it.
-2. Build:
-   ```bash
-   ./build-iso.sh --edition studio ~/Downloads/Fedora-Everything-netinst-x86_64-45-1.4.iso
-   ./build-iso.sh --edition home   ~/Downloads/Fedora-Everything-netinst-x86_64-45-1.4.iso
-   ```
-
-**Offline ISO** (Linux, root, Podman; about 25 GB free):
-
-```bash
-sudo ./build-iso.sh --edition home   --offline --variant base
-sudo ./build-iso.sh --edition studio --offline --variant nvidia
+./build-all.sh                                             # everything: 3 network + 6 offline
+./build-all.sh --network-only                              # the three network ISOs
+./build-all.sh --edition home --offline-only --variant base   # just the one you need
+./build-all.sh --edition studio --edition core --offline-only
+./build-all.sh --channel testing --out /path/to/folder
 ```
 
 `--variant base` is for AMD and Intel graphics, `--variant nvidia` for NVIDIA
-cards. Add `--channel testing` to either kind for a canary machine. The ISO
-and its `.sha256` land in `build/`.
+cards; `--edition` and `--variant` can be repeated. Each ISO has its own log
+in `build/`. A build that fails is listed at the end and its ISO is not moved
+to the folder; the others still are. Ctrl+C stops every build it started.
+`./build-all.sh --help` lists every option.
 
-**Write the stick** with [balenaEtcher](https://etcher.balena.io): **Flash
-from file** (the ISO in `build/`), **Select target** (the USB stick),
-**Flash!** Fedora Media Writer and `dd` work too.
-
-## Publishing to the team drive
-
-`publish-iso.sh` uploads ISOs to the internal Shared Drive, one file per
-Fedora release, edition and variant (a newer build of the same one replaces
-it):
-
-```
-OS/Studio/ShatteredValesOS-Studio-NVIDIA-F45-Offline.iso   (+ .sha256)
-OS/Studio/ShatteredValesOS-Studio-F45-Network.iso
-OS/Home/ShatteredValesOS-Home-Base-F45-Offline.iso
-```
-
-It runs rclone from its container image, as your normal account (not sudo):
+**A single ISO by hand**, if you prefer:
 
 ```bash
-./publish-iso.sh --setup "Team Drive Name"   # once per machine: one Google sign-in
-./publish-iso.sh              # upload every ISO in build/
-./publish-iso.sh --dry-run    # show what would be uploaded
+./build-iso.sh --edition core "$(./fetch-netinst.sh)"          # network (macOS or Linux)
+sudo ./build-iso.sh --edition home --offline --variant base     # offline (Linux, root, Podman)
 ```
 
-Setup is one Google sign-in in the browser, like Google Drive for desktop:
-the script uses rclone's built-in Google app, so there is no Google Cloud
-project, client ID or token to create. The sign-in is stored in
-`~/.config/rclone` on that machine only.
+These leave the ISO and its `.sha256` in `build/`. Add `--channel testing`
+to either kind for a canary machine.
+
+### Write the stick
+
+With [balenaEtcher](https://etcher.balena.io): **Flash from file** (the ISO),
+**Select target** (the USB stick), **Flash!** Fedora Media Writer and `dd`
+work too. To check a download or build first, run
+`sha256sum -c <name>.iso.sha256` in the folder that holds both files.
 
 ## Install
 
@@ -140,25 +130,29 @@ while it ran is harmless.
 
 ## Moving an existing Fedora Silverblue machine instead
 
-No USB stick needed; see `sv-migrate.sh` in each edition's README.
+No USB stick needed: Core Edition's `sv-migrate.sh` moves a Silverblue
+machine onto any edition (`--edition core|home|studio`); see the
+[Core Edition README](https://github.com/Shattered-Vales-Studio/OS-Linux-FedoraSB-ShatteredValesOS_CoreEdition#installing).
 
 ## Checks
 
-`./build-iso.sh --edition studio|home --check` renders the kickstart and runs
-Fedora's `ksvalidator` without building an ISO; CI runs it for both editions
-on every pull request.
+`./build-iso.sh --edition core|studio|home --check` renders the kickstart and
+runs Fedora's `ksvalidator` without building an ISO; CI runs it for every
+edition (network and offline) on every pull request.
 
 ## Keeping up with Fedora
 
-- **Network ISOs** always install the newest image, so they only need
-  rebuilding for a new Fedora release.
+- **Network ISOs** always install the newest image, so they only need a new
+  release when the installer changes or for a new Fedora release (run the
+  *release-network-isos* workflow).
 - **Offline ISOs** hold the image from the day they were built; installed
   machines download everything newer right after first boot. Rebuild them
   whenever you hand out new sticks.
 - **New Fedora releases:** the *fedora-release* workflow checks every
   Monday. When Fedora N+1 is out and its tool and bootc images are
   published, it pushes a `fedora-<N+1>` branch with the version bumps and
-  opens an issue with the pull request link and a test checklist.
+  opens an issue with the pull request link and a test checklist, which ends
+  with publishing new network installers.
 - **GitHub Actions** are kept current by Dependabot.
 
 ## How it works

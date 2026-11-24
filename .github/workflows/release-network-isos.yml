@@ -1,0 +1,63 @@
+# Builds the network installer ISOs for every edition (Core, Studio, Home)
+# and publishes them as a GitHub release anyone can download. Run it by hand
+# (Actions > release-network-isos > Run workflow) whenever the installer
+# changes or after a Fedora release bump. Network ISOs always install the
+# newest signed image, so there is no need to release on a schedule.
+# Offline ISOs are not released here: they are several GB each, over GitHub's
+# 2 GiB asset limit, and are built locally with build-all.sh when needed.
+name: release-network-isos
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "Image tag the installers install"
+        type: choice
+        options: [latest, testing]
+        default: latest
+      note:
+        description: "Optional note placed at the top of the release notes"
+        type: string
+        required: false
+        default: ""
+      draft:
+        description: "Create a draft release (to test the workflow without publishing)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-network-isos
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download and verify Fedora's netinst ISO
+        id: netinst
+        env:
+          SV_NETINST_CACHE: ${{ runner.temp }}/netinst
+        run: echo "path=$(./fetch-netinst.sh)" >> "${GITHUB_OUTPUT}"
+
+      - name: Build the network ISOs
+        env:
+          CHANNEL: ${{ inputs.channel }}
+          NETINST: ${{ steps.netinst.outputs.path }}
+        run: |
+          for edition in core studio home; do
+            ./build-iso.sh --edition "${edition}" --channel "${CHANNEL}" "${NETINST}"
+          done
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANNEL: ${{ inputs.channel }}
+          NOTE: ${{ inputs.note }}
+          DRAFT: ${{ inputs.draft }}
+        run: .github/scripts/release-network-isos.sh

@@ -1,7 +1,7 @@
-# Validates both editions' kickstarts and lints the scripts on every push and
+# Validates every edition's kickstarts and lints the scripts on every push and
 # pull request, so a broken installer is caught before anyone writes a USB
-# stick. No ISO is built here: that needs Fedora's netinst ISO and, for the
-# Studio edition, personal values that never leave the builder's machine.
+# stick. No ISO is built here; network ISOs are built and released by the
+# release-network-isos workflow, offline ISOs locally with build-all.sh.
 name: check
 
 on:
@@ -18,12 +18,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Lint scripts
-        run: shellcheck build-iso.sh
+        run: shellcheck build-iso.sh build-all.sh fetch-netinst.sh .github/scripts/*.sh
+      - name: Validate Core kickstart
+        run: ./build-iso.sh --edition core --check
       - name: Validate Studio kickstart
         run: ./build-iso.sh --edition studio --check
       - name: Validate Home kickstart
         run: ./build-iso.sh --edition home --check
       - name: Validate offline kickstarts
         run: |
+          ./build-iso.sh --edition core --offline --check
           ./build-iso.sh --edition studio --offline --check
           ./build-iso.sh --edition home --offline --check

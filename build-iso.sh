@@ -4,11 +4,12 @@
 #
 # Purpose:
 #   Builds a Shattered Vales OS installer ISO for writing to a USB stick with
-#   balenaEtcher (or Fedora Media Writer). Both editions install the same
+#   balenaEtcher (or Fedora Media Writer). Every edition installs the same
 #   guided way: Anaconda asks for the language, network and computer name,
 #   the disk and the first (administrator) account, and nothing in the ISO is
 #   tied to a particular site or organization. The edition only picks which
 #   image is installed:
+#     core    shatteredvales-os-core  plain Shattered Vales desktop
 #     studio  shatteredvales-os       developer workstation
 #     home    shatteredvales-os-home  family computer
 #   Every build also writes its full output to build/<iso-name>.log, so an
@@ -23,14 +24,15 @@
 #              for example a Shattered Vales workstation.
 #
 # Usage:
-#   ./build-iso.sh --edition studio|home [--channel latest|testing] \
+#   ./build-iso.sh --edition core|studio|home [--channel latest|testing] \
 #       <Fedora-Everything-netinst-x86_64-45-*.iso> [output.iso]
-#   sudo ./build-iso.sh --edition studio|home --offline --variant base|nvidia \
+#       (./fetch-netinst.sh downloads and verifies the netinst ISO)
+#   sudo ./build-iso.sh --edition core|studio|home --offline --variant base|nvidia \
 #       [--channel latest|testing] [--keep-cache]
 #       --keep-cache keeps the downloaded image, installer environment and
 #       image-builder cache for a quick rebuild; by default a successful
 #       offline build removes them and leaves only the ISO and its checksum.
-#   ./build-iso.sh --edition studio|home [--offline] --check
+#   ./build-iso.sh --edition core|studio|home [--offline] --check
 #       Render and validate the kickstart only (no ISO; used by CI).
 #
 # Inputs:
@@ -208,8 +210,12 @@ YAML
 #   Arguments: $1 edition
 #   Returns: 0 on success
 write_buildstamp() {
-    local variant_name="Studio"
-    [[ "$1" == home ]] && variant_name="Home Edition"
+    local variant_name
+    case "$1" in
+        core) variant_name="Core Edition" ;;
+        home) variant_name="Home Edition" ;;
+        *) variant_name="Studio Edition" ;;
+    esac
     cat > "${OFFLINE_DIR}/buildstamp" <<STAMP
 [Main]
 Product=Shattered Vales OS
@@ -318,7 +324,7 @@ main() {
     local check=0 offline=0 variant="" payload="" mode
     while (( $# )); do
         case "$1" in
-            --edition) edition="${2:?--edition needs studio or home}"; shift ;;
+            --edition) edition="${2:?--edition needs core, studio or home}"; shift ;;
             --channel) channel="${2:?--channel needs latest or testing}"; shift ;;
             --variant) variant="${2:?--variant needs base or nvidia}"; shift ;;
             --offline) offline=1 ;;
@@ -332,13 +338,14 @@ main() {
     done
     [[ "${channel}" == latest || "${channel}" == testing ]] || die "--channel must be latest or testing" 64
     case "${edition}" in
+        core) name=shatteredvales-os-core ;;
         studio) name=shatteredvales-os ;;
         home) name=shatteredvales-os-home ;;
-        *) die "--edition must be studio or home" 64 ;;
+        *) die "--edition must be core, studio or home" 64 ;;
     esac
     mkdir -p "${HERE}/build"
     # Under sudo the build folder still belongs to the person who ran it, so
-    # they can read logs, publish ISOs and build without sudo later.
+    # they can read logs, move the ISOs and build without sudo later.
     if [[ -n "${SUDO_UID:-}" ]]; then
         chown "${SUDO_UID}:${SUDO_GID:-${SUDO_UID}}" "${HERE}/build"
     fi
