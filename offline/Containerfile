@@ -22,6 +22,13 @@ RUN dnf5 install -qy --setopt=retries=10 --setopt=timeout=120 --setopt=minrate=1
 # The ISO's UEFI boot files come from /boot/efi of this container.
 RUN mkdir -p /boot/efi && cp -ra /usr/lib/efi/*/*/EFI /boot/efi
 
+# bootc images make /mnt a link to /var/mnt. Anaconda mounts the new system
+# at /mnt/sysroot, and systemd-tmpfiles --root then resolves it to
+# /var/mnt/sysroot and refuses to work outside the root it was given (exit
+# 73), failing the install right after the image is deployed. Fedora's own
+# installer images have a real /mnt.
+RUN rm -f /mnt && mkdir -p /mnt
+
 # Boot menu and volume label (iso.yaml), and the edition's kickstart, which
 # Anaconda reads as its defaults.
 COPY iso.yaml /usr/lib/image-builder/bootc/iso.yaml
