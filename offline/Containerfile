@@ -46,24 +46,30 @@ COPY theme/50-shatteredvales.conf /etc/anaconda/conf.d/50-shatteredvales.conf
 COPY theme/settings.ini /etc/gtk-3.0/settings.ini
 
 # Gold hub icons. Anaconda loads each hub icon as a fixed-colour image
-# (gtk_icon_info_load_icon), so CSS cannot recolour it, and Adwaita's dark
-# grey is nearly invisible on the dark window. A small icon theme holds
-# gold copies of exactly the icons Anaconda's screens name, read from its
-# own code so new screens are covered, and inherits everything else from
-# Adwaita. The warning and error icons keep their colours.
-RUN theme=/usr/share/icons/ShatteredValesInstaller \
-    && mkdir -p "${theme}/symbolic" \
-    && printf '%s\n' '[Icon Theme]' 'Name=ShatteredValesInstaller' 'Inherits=Adwaita,hicolor' \
-        'Directories=symbolic' '' '[symbolic]' 'Size=16' 'MinSize=8' 'MaxSize=512' 'Type=Scalable' \
-        > "${theme}/index.theme" \
-    && for name in $(grep -rhoE 'icon = "[a-z-]+-symbolic"' /usr/lib64/python3*/site-packages/pyanaconda/ui/gui \
-            | cut -d'"' -f2 | sort -u | grep -vE '^dialog-(warning|error)-'); do \
-        src="$(find /usr/share/icons/Adwaita/symbolic -name "${name}.svg" -print -quit)"; \
-        [ -n "${src}" ] || continue; \
-        sed -E 's/fill="#[0-9a-fA-F]{6}"/fill="#c5a059"/g' "${src}" > "${theme}/symbolic/${name}.svg"; \
+# (gtk_icon_info_load_icon), which keeps the SVG's own fill, so CSS cannot
+# recolour it and Adwaita's dark grey is nearly invisible on the dark
+# window. The icons Anaconda's screens name, read from its own code so new
+# screens are covered, are recoloured in Adwaita itself: a separate icon
+# theme is not used, because Anaconda runs on Wayland, where GTK takes the
+# icon theme from GSettings (Adwaita) and ignores settings.ini. This only
+# changes the installer environment. Elsewhere GTK draws these symbolic
+# icons in the CSS text colour and ignores the fill. The warning and error
+# icons keep their colours. The build fails if nothing was recoloured, so
+# a future Anaconda or Adwaita layout change cannot quietly bring back the
+# grey icons.
+RUN names="$(grep -rhoE 'icon = "[a-z-]+-symbolic"' /usr/lib64/python3*/site-packages/pyanaconda/ui/gui \
+            | cut -d'"' -f2 | sort -u | grep -vE '^dialog-(warning|error)-')" \
+    && recoloured=0 \
+    && for name in ${names}; do \
+        files="$(find /usr/share/icons/Adwaita -name "${name}.svg")"; \
+        [ -n "${files}" ] || { echo "No Adwaita icon for ${name}; it stays grey"; continue; }; \
+        for file in ${files}; do \
+            sed -i -E 's/fill="#[0-9a-fA-F]{6}"/fill="#c5a059"/g' "${file}"; \
+            if grep -q 'fill="#c5a059"' "${file}"; then recoloured=$((recoloured + 1)); fi; \
+        done; \
     done \
-    && ls "${theme}/symbolic" | grep -q . \
-    && gtk-update-icon-cache -q -f "${theme}"
+    && echo "Recoloured ${recoloured} hub icons" \
+    && [ "${recoloured}" -gt 0 ]
 
 # Light gold text links. Anaconda's screen definitions colour links such as
 # "Full disk summary and boot loader..." and "Refresh..." pure blue through
