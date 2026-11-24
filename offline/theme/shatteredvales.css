@@ -83,13 +83,6 @@ button.suggested-action:disabled label,
     color: #a3a3a3;
 }
 
-/* Hub icons are symbolic and drawn in Anaconda's dark grey, which is
- * nearly invisible on the dark window; the brand gold keeps them legible
- * (8.1:1 on near-black). */
-AnacondaSpokeSelector image {
-    color: @sv_gold;
-}
-
 /* Progress, selection and toggles in gold instead of Adwaita blue. */
 progressbar progress {
     background-image: none;
