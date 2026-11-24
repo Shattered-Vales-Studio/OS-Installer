@@ -94,12 +94,15 @@ OS/Home/ShatteredValesOS-Home-Base-F45-Offline.iso
 It runs rclone from its container image, as your normal account (not sudo):
 
 ```bash
-./publish-iso.sh --setup      # once per machine: connect to the Shared Drive
+./publish-iso.sh --setup "Team Drive Name"   # once per machine: one Google sign-in
 ./publish-iso.sh              # upload every ISO in build/
 ./publish-iso.sh --dry-run    # show what would be uploaded
 ```
 
-The Drive sign-in is stored in `~/.config/rclone` on that machine only.
+Setup is one Google sign-in in the browser, like Google Drive for desktop:
+the script uses rclone's built-in Google app, so there is no Google Cloud
+project, client ID or token to create. The sign-in is stored in
+`~/.config/rclone` on that machine only.
 
 ## Install
 

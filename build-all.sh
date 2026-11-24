@@ -23,7 +23,7 @@
 #   Run as your normal account (not with sudo). It asks for your password
 #   once and keeps sudo active until the builds finish. Publishing happens
 #   only on a machine where the Drive connection has been set up
-#   (./publish-iso.sh --setup); otherwise the ISOs stay in build/.
+#   (./publish-iso.sh --setup "<Shared Drive name>"); otherwise the ISOs stay in build/.
 #
 # Exit codes:
 #   0 when every ISO built (and published), 1 if any build or upload

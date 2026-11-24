@@ -17,8 +17,9 @@
 # Usage:
 #   ./publish-iso.sh [--dry-run] [build/<iso> ...]
 #     With no files, publishes every ISO in build/.
-#   One-time setup of the Drive connection (see README, "Publishing"):
-#   ./publish-iso.sh --setup
+#   One-time setup of the Drive connection: a single Google sign-in in the
+#   browser, nothing to create (see README, "Publishing"):
+#   ./publish-iso.sh --setup "<Shared Drive name>"
 #
 # Environment:
 #   SV_DRIVE_REMOTE  rclone remote for the Shared Drive (default svos-drive)
@@ -59,7 +60,7 @@ rclone() {
     if [[ -t 0 && -t 1 ]]; then
         terminal+=(-t)
     fi
-    mkdir -p "${CONFIG_DIR}"
+    mkdir -p "${CONFIG_DIR}" "${HERE}/build"
     podman run --rm "${terminal[@]}" --network host --userns keep-id \
         --security-opt label=disable \
         -v "${CONFIG_DIR}:/config/rclone" -v "${HERE}/build:/data:ro" \
@@ -93,26 +94,33 @@ drive_name() {
 }
 
 # setup
-#   Creates the Shared Drive connection with rclone's guided setup.
-#   Arguments: none
-#   Returns: rclone's exit status
+#   Connects this machine to a Shared Drive with one Google sign-in in the
+#   browser, the same as signing in to Google Drive for desktop. It uses
+#   rclone's built-in Google app, so no Google Cloud project, client ID or
+#   token is created. rclone's own question-and-answer setup is skipped
+#   because it suggests creating a client ID, which is optional and
+#   confusing.
+#   Arguments: $1 the Shared Drive's name as shown in Google Drive
+#   Returns: non-zero if sign-in fails or no Shared Drive has that name
 setup() {
-    cat <<EOF
-rclone's setup asks a few questions. Answer:
-  n               new remote
-  ${REMOTE}       name (type exactly this)
-  drive           storage type (Google Drive)
-  <Enter>         client_id and client_secret (leave empty)
-  1               scope: full access
-  <Enter>         service_account_file (leave empty)
-  n               edit advanced config
-  y               use web browser to authenticate: open the link it prints,
-                  sign in with your studio Google account and allow access
-  y               configure this as a Shared Drive, then pick the internal
-                  shared drive from the list by its number
-  y               keep this remote, then q to quit
-EOF
-    rclone config
+    local name="$1" drives id
+    command -v jq >/dev/null || die "jq is required for the setup."
+    echo "Sign in to Google: open the http://127.0.0.1:53682/auth link that"
+    echo "appears below in this computer's browser, pick your studio account"
+    echo "and allow access. The window can be closed afterwards."
+    # stdout would print the new sign-in token; only the link (stderr) is
+    # useful to show.
+    rclone config create "${REMOTE}" drive scope=drive >/dev/null
+    drives="$(rclone backend drives "${REMOTE}:")" || die "Signed in, but listing Shared Drives failed."
+    id="$(jq -r --arg name "${name}" '.[] | select(.name == $name) | .id' <<<"${drives}" | head -n1)"
+    if [[ -z "${id}" ]]; then
+        echo "Shared Drives this account can use:"
+        jq -r '.[].name' <<<"${drives}" | sed 's/^/  /'
+        rclone config delete "${REMOTE}"
+        die "No Shared Drive is named \"${name}\"."
+    fi
+    rclone config update "${REMOTE}" team_drive "${id}" >/dev/null
+    echo "Connected to the Shared Drive \"${name}\". Publish with: ./publish-iso.sh"
 }
 
 # main
@@ -126,7 +134,7 @@ main() {
     command -v podman >/dev/null || die "podman is required."
     while (( $# )); do
         case "$1" in
-            --setup) setup; exit ;;
+            --setup) setup "${2:?--setup needs the Shared Drive name, in quotes}"; exit ;;
             --dry-run) dry_run=1 ;;
             -h|--help) sed -n '/^# Usage:/,/^#$/p' "$0" | sed 's/^# \{0,3\}//'; exit 0 ;;
             -*) die "Unknown option: $1" 64 ;;
@@ -141,7 +149,7 @@ main() {
     fi
     (( ${#isos[@]} > 0 )) || die "No ISOs in build/ to publish."
     if ! grep -qs "^\[${REMOTE}\]" "${CONFIG_DIR}/rclone.conf"; then
-        die "No Drive connection yet. Run once: ./publish-iso.sh --setup"
+        die "No Drive connection yet. Run once: ./publish-iso.sh --setup \"<Shared Drive name>\""
     fi
     (( dry_run )) && flags+=(--dry-run)
 
