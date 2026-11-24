@@ -16,7 +16,7 @@ jobs:
   check:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Lint scripts
         run: shellcheck build-iso.sh
       - name: Validate Studio kickstart
