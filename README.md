@@ -82,6 +82,19 @@ No USB stick needed; see `sv-migrate.sh` in each edition's README.
 Fedora's `ksvalidator` without building an ISO; CI runs it for both editions
 on every pull request.
 
+## Keeping up with Fedora
+
+- **Network ISOs** always install the newest image, so they only need
+  rebuilding for a new Fedora release.
+- **Offline ISOs** hold the image from the day they were built; installed
+  machines download everything newer right after first boot. Rebuild them
+  whenever you hand out new sticks.
+- **New Fedora releases:** the *fedora-release* workflow checks every
+  Monday. When Fedora N+1 is out and its tool and bootc images are
+  published, it pushes a `fedora-<N+1>` branch with the version bumps and
+  opens an issue with the pull request link and a test checklist.
+- **GitHub Actions** are kept current by Dependabot.
+
 ## How it works
 
 `build-iso.sh` renders `kickstart/installer.ks.in` (the edition only sets
