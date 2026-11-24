@@ -71,11 +71,11 @@ RUN theme=/usr/share/icons/ShatteredValesInstaller \
 # on the dark window. #e0cba0 on the dark page is 7.7:1 (WCAG AAA). The
 # check fails the build if a future Anaconda stops matching, rather than
 # quietly shipping blue links again.
-RUN gui="$(echo /usr/lib64/python3*/site-packages/pyanaconda/ui/gui)" \
-    && grep -q '#00000000ffff' "${gui}/spokes/storage.glade" \
-    && find "${gui}" -name '*.glade' -exec \
+RUN ui=/usr/share/anaconda/ui \
+    && grep -q '#00000000ffff' "${ui}/spokes/storage.glade" \
+    && find "${ui}" -name '*.glade' -exec \
         sed -i 's/name="foreground" value="#00000000ffff"/name="foreground" value="#e0cba0"/g' {} + \
-    && ! grep -rq '#00000000ffff' --include='*.glade' "${gui}"
+    && ! grep -rq '#00000000ffff' --include='*.glade' "${ui}"
 
 # Turn the container into an installer: boot straight into Anaconda as an
 # "install" user, give it a shell on the second console, and drop pieces
