@@ -9,8 +9,9 @@ ARG BASE=quay.io/fedora/fedora-bootc:45
 FROM ${BASE}
 
 # Anaconda with its GTK interface and boot pieces, the fonts its screens
-# need, and the tools image-builder runs inside this container.
-RUN dnf5 install -qy \
+# need, and the tools image-builder runs inside this container. Retries and
+# a longer timeout ride out slow or briefly unreachable Fedora mirrors.
+RUN dnf5 install -qy --setopt=retries=10 --setopt=timeout=120 --setopt=minrate=1 \
         anaconda anaconda-install-img-deps anaconda-dracut \
         dracut-config-generic dracut-network net-tools pciutils \
         grub2-efi-x64-cdboot plymouth \

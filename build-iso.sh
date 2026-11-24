@@ -48,6 +48,9 @@ readonly HERE
 readonly REGISTRY="ghcr.io/shattered-vales-studio"
 readonly OFFLINE_DIR="${HERE}/build/offline"
 readonly FEDORA_TOOLS="registry.fedoraproject.org/fedora:45"
+# Fedora mirrors sometimes time out mid-build; retry patiently rather than
+# fail a build that has already downloaded several GB.
+readonly DNF_RETRY="--setopt=retries=10 --setopt=timeout=120 --setopt=minrate=1"
 
 # die
 #   Prints an error and exits.
@@ -107,7 +110,7 @@ render_kickstart() {
         -e SV_IMAGE_NAME="${name}" -e SV_IMAGE_TAG="${channel}" \
         -e SV_OFFLINE_IMAGE="${payload}" -e MODE="${mode}" \
         "${FEDORA_TOOLS}" bash -euo pipefail -c "
-            dnf -y -q install lorax gettext pykickstart >/dev/null
+            dnf -y -q ${DNF_RETRY} install lorax gettext pykickstart >/dev/null
             set -a; source /installer.env; set +a
             # mkksiso stores the kickstart under its own file name, so it
             # is rendered as ks.cfg for a recognisable name on the stick.
@@ -196,7 +199,7 @@ build_offline() {
     podman run --rm --privileged --security-opt label=type:unconfined_t \
         -v /var/lib/containers/storage:/var/lib/containers/storage \
         -v /dev:/dev -v "${work}:/output" "${FEDORA_TOOLS}" bash -euo pipefail -c "
-            dnf -y -q install image-builder osbuild osbuild-depsolve-dnf podman >/dev/null
+            dnf -y -q ${DNF_RETRY} install image-builder osbuild osbuild-depsolve-dnf podman >/dev/null
             image-builder build --bootc-ref '${env_tag}' \
                 --bootc-installer-payload-ref '${payload}' \
                 --bootc-default-fs ext4 --output-dir /output generic-iso
