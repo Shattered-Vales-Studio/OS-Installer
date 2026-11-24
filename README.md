@@ -35,10 +35,11 @@ You need a USB stick of 4 GB (network) or 8 GB (offline) or more.
 
 **Everything at once** (Linux; about 60 GB free): one command builds all
 six ISOs (network for Studio and Home, offline for each edition in base and
-NVIDIA) and publishes them to the team drive. Run it as your normal
-account; it asks for your sudo password once, sets up the Drive connection
-first if needed, downloads and checks Fedora's netinst ISO itself, and
-builds the two editions side by side:
+NVIDIA), and publishes them to the team drive when the machine is connected
+to it (see below; without that, the ISOs simply stay in `build/`). Run it as
+your normal account; it asks for your sudo password once, downloads and
+checks Fedora's netinst ISO itself, and builds the two editions side by
+side:
 
 ```bash
 ./build-all.sh                 # build all six and publish
@@ -93,12 +94,15 @@ OS/Home/ShatteredValesOS-Home-Base-F45-Offline.iso
 It runs rclone from its container image, as your normal account (not sudo):
 
 ```bash
-./publish-iso.sh --setup      # once per machine: connect to the Shared Drive
+./publish-iso.sh --setup "Team Drive Name"   # once per machine: one Google sign-in
 ./publish-iso.sh              # upload every ISO in build/
 ./publish-iso.sh --dry-run    # show what would be uploaded
 ```
 
-The Drive sign-in is stored in `~/.config/rclone` on that machine only.
+Setup is one Google sign-in in the browser, like Google Drive for desktop:
+the script uses rclone's built-in Google app, so there is no Google Cloud
+project, client ID or token to create. The sign-in is stored in
+`~/.config/rclone` on that machine only.
 
 ## Install
 

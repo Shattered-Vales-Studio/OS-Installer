@@ -17,8 +17,9 @@
 # Usage:
 #   ./publish-iso.sh [--dry-run] [build/<iso> ...]
 #     With no files, publishes every ISO in build/.
-#   One-time setup of the Drive connection (see README, "Publishing"):
-#   ./publish-iso.sh --setup
+#   One-time setup of the Drive connection: a single Google sign-in in the
+#   browser, nothing to create (see README, "Publishing"):
+#   ./publish-iso.sh --setup "<Shared Drive name>"
 #
 # Environment:
 #   SV_DRIVE_REMOTE  rclone remote for the Shared Drive (default svos-drive)
@@ -34,6 +35,7 @@ readonly RCLONE_IMAGE="docker.io/rclone/rclone:1.76.0"
 readonly REMOTE="${SV_DRIVE_REMOTE:-svos-drive}"
 readonly CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/rclone"
 readonly DRIVE_ROOT="OS"
+readonly RCLONE_CONF="${CONFIG_DIR}/rclone.conf"
 
 # die
 #   Prints an error and exits.
@@ -59,11 +61,25 @@ rclone() {
     if [[ -t 0 && -t 1 ]]; then
         terminal+=(-t)
     fi
-    mkdir -p "${CONFIG_DIR}"
+    mkdir -p "${CONFIG_DIR}" "${HERE}/build"
     podman run --rm "${terminal[@]}" --network host --userns keep-id \
         --security-opt label=disable \
         -v "${CONFIG_DIR}:/config/rclone" -v "${HERE}/build:/data:ro" \
         "${RCLONE_IMAGE}" "$@"
+}
+
+# drive_ready
+#   Tells whether the Shared Drive connection has been fully set up.
+#   Arguments: none
+#   Returns: 0 if the remote exists with a Shared Drive chosen, 1 otherwise
+drive_ready() {
+    # Setup records the Shared Drive last, so a sign-in that was interrupted
+    # (a section with no team_drive) does not count as connected.
+    awk -v section="[${REMOTE}]" '
+        $0 == section { current = 1; next }
+        /^\[/ { current = 0 }
+        current && /^team_drive = ./ { found = 1 }
+        END { exit !found }' "${RCLONE_CONF}" 2>/dev/null
 }
 
 # drive_name
@@ -93,26 +109,49 @@ drive_name() {
 }
 
 # setup
-#   Creates the Shared Drive connection with rclone's guided setup.
-#   Arguments: none
-#   Returns: rclone's exit status
+#   Connects this machine to a Shared Drive with one Google sign-in in the
+#   browser, the same as signing in to Google Drive for desktop. It uses
+#   rclone's built-in Google app, so no Google Cloud project, client ID or
+#   token is created. rclone's own question-and-answer setup is skipped
+#   because it suggests creating a client ID, which is optional and
+#   confusing.
+#   Arguments: $1 the Shared Drive's name as shown in Google Drive
+#   Returns: non-zero if sign-in fails or no Shared Drive has that name
 setup() {
-    cat <<EOF
-rclone's setup asks a few questions. Answer:
-  n               new remote
-  ${REMOTE}       name (type exactly this)
-  drive           storage type (Google Drive)
-  <Enter>         client_id and client_secret (leave empty)
-  1               scope: full access
-  <Enter>         service_account_file (leave empty)
-  n               edit advanced config
-  y               use web browser to authenticate: open the link it prints,
-                  sign in with your studio Google account and allow access
-  y               configure this as a Shared Drive, then pick the internal
-                  shared drive from the list by its number
-  y               keep this remote, then q to quit
-EOF
-    rclone config
+    local name="$1" drives id
+    command -v jq >/dev/null || die "jq is required for the setup."
+    local line url
+    # A half-finished earlier attempt would otherwise be kept.
+    rclone config delete "${REMOTE}" >/dev/null 2>&1 || true
+    echo "Signing in to Google. Your browser opens; pick your studio account"
+    echo "and allow access, then come back here."
+    # rclone runs in a container without a browser, so the script opens the
+    # sign-in link on this computer and hides rclone's notes about that.
+    # stdout is dropped because it would print the new sign-in token.
+    if ! rclone config create "${REMOTE}" drive scope=drive 2>&1 >/dev/null | while IFS= read -r line; do
+        if [[ "${line}" =~ (http://127\.0\.0\.1:53682/auth\?state=[A-Za-z0-9_-]+) ]]; then
+            url="${BASH_REMATCH[1]}"
+            echo "If the browser does not open, go to: ${url}"
+            xdg-open "${url}" >/dev/null 2>&1 || true
+        elif [[ "${line}" != *"Redirect URL"* && "${line}" != *"Log in and authorize"* \
+                && "${line}" != *"Waiting for code"* && "${line}" != *"Got code"* ]]; then
+            echo "${line}"
+        fi
+    done; then
+        die "Google sign-in did not finish; run the setup again."
+    fi
+    drives="$(rclone backend drives "${REMOTE}:")" || die "Signed in, but listing Shared Drives failed."
+    id="$(jq -r --arg name "${name}" '.[] | select(.name == $name) | .id' <<<"${drives}" | head -n1)"
+    if [[ -z "${id}" ]]; then
+        echo "Shared Drives this account can use:"
+        jq -r '.[].name' <<<"${drives}" | sed 's/^/  /'
+        rclone config delete "${REMOTE}"
+        die "No Shared Drive is named \"${name}\"."
+    fi
+    # config_refresh_token=false keeps rclone from asking for a second
+    # sign-in just to record the Shared Drive.
+    rclone config update "${REMOTE}" team_drive "${id}" config_refresh_token=false >/dev/null
+    echo "Connected to the Shared Drive \"${name}\". Publish with: ./publish-iso.sh"
 }
 
 # main
@@ -126,7 +165,7 @@ main() {
     command -v podman >/dev/null || die "podman is required."
     while (( $# )); do
         case "$1" in
-            --setup) setup; exit ;;
+            --setup) setup "${2:?--setup needs the Shared Drive name, in quotes}"; exit ;;
             --dry-run) dry_run=1 ;;
             -h|--help) sed -n '/^# Usage:/,/^#$/p' "$0" | sed 's/^# \{0,3\}//'; exit 0 ;;
             -*) die "Unknown option: $1" 64 ;;
@@ -140,8 +179,8 @@ main() {
         shopt -u nullglob
     fi
     (( ${#isos[@]} > 0 )) || die "No ISOs in build/ to publish."
-    if ! grep -qs "^\[${REMOTE}\]" "${CONFIG_DIR}/rclone.conf"; then
-        die "No Drive connection yet. Run once: ./publish-iso.sh --setup"
+    if ! drive_ready; then
+        die "No Drive connection yet. Run once: ./publish-iso.sh --setup \"<Shared Drive name>\""
     fi
     (( dry_run )) && flags+=(--dry-run)
 

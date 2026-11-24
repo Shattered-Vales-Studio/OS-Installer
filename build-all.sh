@@ -21,9 +21,9 @@
 #     --no-publish  build only; publish later with ./publish-iso.sh
 #     --keep-cache  keep each offline build's caches for a quicker rebuild
 #   Run as your normal account (not with sudo). It asks for your password
-#   once and keeps sudo active until the builds finish. If the Drive
-#   connection is not set up yet, it runs that one-time setup first, before
-#   the long builds start.
+#   once and keeps sudo active until the builds finish. Publishing happens
+#   only on a machine where the Drive connection has been set up
+#   (./publish-iso.sh --setup "<Shared Drive name>"); otherwise the ISOs stay in build/.
 #
 # Exit codes:
 #   0 when every ISO built (and published), 1 if any build or upload
@@ -68,7 +68,13 @@ say() {
 #   Arguments: none
 #   Returns: 0 if the rclone remote exists, 1 otherwise
 drive_ready() {
-    grep -qs "^\[${REMOTE}\]" "${RCLONE_CONF}"
+    # Setup records the Shared Drive last, so a sign-in that was interrupted
+    # (a section with no team_drive) does not count as connected.
+    awk -v section="[${REMOTE}]" '
+        $0 == section { current = 1; next }
+        /^\[/ { current = 0 }
+        current && /^team_drive = ./ { found = 1 }
+        END { exit !found }' "${RCLONE_CONF}" 2>/dev/null
 }
 
 # verify_netinst
@@ -173,9 +179,8 @@ main() {
     [[ "$(uname -s)" == Linux ]] || die "Offline ISOs build on Linux; use a Shattered Vales or Fedora machine." 64
 
     if (( publish )) && ! drive_ready; then
-        say "The Shared Drive is not connected yet; running the one-time setup first."
-        "${HERE}/publish-iso.sh" --setup
-        drive_ready || die "The Drive setup did not finish. Run ./publish-iso.sh --setup, or build with --no-publish."
+        say "This machine is not connected to the Shared Drive, so the ISOs will stay in build/."
+        publish=0
     fi
 
     say "Building all Fedora ${FEDORA_RELEASE} ISOs from the ${channel} images. Your sudo password:"
@@ -199,7 +204,7 @@ main() {
         fi
     done
     rm -rf "${RESULTS}"
-    say "Built ${#built[@]} of 6 ISOs in $(( (SECONDS - started) / 60 )) min."
+    say "Built ${#built[@]} of 6 ISOs in $(( (SECONDS - started) / 60 )) min; they are in ${HERE}/build."
 
     if (( publish && ${#built[@]} > 0 )); then
         say "Publishing to the Shared Drive"
