@@ -44,14 +44,12 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly HERE
 readonly REGISTRY="ghcr.io/shattered-vales-studio"
-# Offline builds share root's container storage and image-builder's store,
-# neither of which tolerates two builds at once, so offline builds take this
-# lock and run one after another.
-readonly OFFLINE_LOCK="${HERE}/build/.offline.lock"
-readonly STORE_DIR="${HERE}/build/image-builder-store"
-# Working folder of the offline build in progress, set per edition and
-# variant in main.
+# Each offline build (edition and graphics variant) has its own working
+# folder, image-builder store and installer-environment tag, set in main, so
+# different builds can run in parallel; podman's own storage is safe to
+# share. A lock per build stops the same one from running twice.
 OFFLINE_DIR=""
+STORE_DIR=""
 readonly FEDORA_TOOLS="registry.fedoraproject.org/fedora:45"
 # Fedora mirrors sometimes time out mid-build; retry patiently rather than
 # fail a build that has already downloaded several GB.
@@ -179,12 +177,13 @@ YAML
 #   builds the installer environment with the rendered kickstart, and runs
 #   image-builder's generic-iso in a privileged Fedora container that shares
 #   that storage.
-#   Arguments: $1 edition, $2 payload image ref, $3 output ISO name
+#   Arguments: $1 edition, $2 variant, $3 payload image ref, $4 output ISO
+#              name
 #   Returns: non-zero on any failure
 build_offline() {
-    local edition="$1" payload="$2" output="$3" label env_tag work iso
+    local edition="$1" variant="$2" payload="$3" output="$4" label env_tag work iso
     label="SVOS-${edition^^}"
-    env_tag="localhost/shatteredvales-installer-${edition}:latest"
+    env_tag="localhost/shatteredvales-installer-${edition}-${variant}:latest"
     work="${OFFLINE_DIR}/output"
 
     write_iso_yaml "${edition}" "${label}"
@@ -198,7 +197,8 @@ build_offline() {
     # image-builder labels its cache (store) for SELinux, which the
     # container's own overlay filesystem cannot hold ("chcon: Operation not
     # supported" on SELinux-enforcing hosts), so the store lives on the
-    # host's disk. Kept between builds, it also makes later ISOs faster.
+    # host's disk. Kept between runs of the same build, it also makes
+    # rebuilds faster.
     podman run --rm --privileged --network host --security-opt label=type:unconfined_t \
         -v /var/lib/containers/storage:/var/lib/containers/storage \
         -v "${STORE_DIR}:/var/cache/image-builder/store" \
@@ -275,12 +275,13 @@ main() {
         [[ "$(uname -s)" == Linux ]] || die "Offline ISOs build on Linux; use a Shattered Vales or Fedora machine." 64
         (( EUID == 0 )) || die "Offline ISOs need root: run with sudo." 64
         command -v podman >/dev/null || die "Offline ISOs need podman."
-        exec 9>"${OFFLINE_LOCK}"
-        flock -n 9 || die "Another offline build is running. Build offline ISOs one after another (chain them with &&)."
+        exec 9>"${HERE}/build/.offline-${edition}-${variant}.lock"
+        flock -n 9 || die "The ${edition} ${variant} offline ISO is already being built in another terminal."
         OFFLINE_DIR="${HERE}/build/offline-${edition}-${variant}"
+        STORE_DIR="${HERE}/build/image-builder-store-${edition}-${variant}"
         rm -rf "${OFFLINE_DIR}" && mkdir -p "${OFFLINE_DIR}"
         render_kickstart "${name}" "${channel}" offline "${payload}"
-        build_offline "${edition}" "${payload}" "${output}"
+        build_offline "${edition}" "${variant}" "${payload}" "${output}"
         mode="offline, ${variant} graphics"
     else
         [[ -n "${input}" ]] || die "Give the Fedora netinst ISO to build from (see --help)." 64
