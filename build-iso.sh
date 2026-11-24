@@ -44,8 +44,14 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly HERE
 readonly REGISTRY="ghcr.io/shattered-vales-studio"
-readonly OFFLINE_DIR="${HERE}/build/offline"
+# Offline builds share root's container storage and image-builder's store,
+# neither of which tolerates two builds at once, so offline builds take this
+# lock and run one after another.
+readonly OFFLINE_LOCK="${HERE}/build/.offline.lock"
 readonly STORE_DIR="${HERE}/build/image-builder-store"
+# Working folder of the offline build in progress, set per edition and
+# variant in main.
+OFFLINE_DIR=""
 readonly FEDORA_TOOLS="registry.fedoraproject.org/fedora:45"
 # Fedora mirrors sometimes time out mid-build; retry patiently rather than
 # fail a build that has already downloaded several GB.
@@ -89,7 +95,8 @@ container_cli() {
 # render_kickstart
 #   Renders and validates the kickstart in a Fedora container. For a network
 #   ISO it then embeds it into the netinst ISO; for an offline ISO it writes
-#   it to build/offline/ks.cfg for the installer environment.
+#   it to the build's working folder (OFFLINE_DIR) for the installer
+#   environment.
 #   Arguments: $1 image name, $2 channel, $3 mode (check, network or
 #              offline), $4 offline payload ref (offline and check modes),
 #              $5 input netinst ISO and $6 output name (network mode only)
@@ -114,6 +121,7 @@ render_kickstart() {
         -e SUBST_VARS="${SUBST_VARS}" -e SV_IMAGE_REGISTRY="${REGISTRY}" \
         -e SV_IMAGE_NAME="${name}" -e SV_IMAGE_TAG="${channel}" \
         -e SV_OFFLINE_IMAGE="${payload}" -e MODE="${mode}" \
+        -e OFFLINE_SUBDIR="${OFFLINE_DIR#"${HERE}"/}" \
         "${FEDORA_TOOLS}" bash -euo pipefail -c "
             dnf -y -q ${DNF_RETRY} install lorax gettext pykickstart >/dev/null
             # mkksiso stores the kickstart under its own file name, so it
@@ -134,8 +142,7 @@ render_kickstart() {
             case \"\${MODE}\" in
                 check) exit 0 ;;
                 offline)
-                    mkdir -p build/offline
-                    cp \"\${ks}\" build/offline/ks.cfg
+                    cp \"\${ks}\" \"/work/\${OFFLINE_SUBDIR}/ks.cfg\"
                     exit 0 ;;
             esac
             # Removing the media check makes the default boot entry start
@@ -268,6 +275,10 @@ main() {
         [[ "$(uname -s)" == Linux ]] || die "Offline ISOs build on Linux; use a Shattered Vales or Fedora machine." 64
         (( EUID == 0 )) || die "Offline ISOs need root: run with sudo." 64
         command -v podman >/dev/null || die "Offline ISOs need podman."
+        exec 9>"${OFFLINE_LOCK}"
+        flock -n 9 || die "Another offline build is running. Build offline ISOs one after another (chain them with &&)."
+        OFFLINE_DIR="${HERE}/build/offline-${edition}-${variant}"
+        rm -rf "${OFFLINE_DIR}" && mkdir -p "${OFFLINE_DIR}"
         render_kickstart "${name}" "${channel}" offline "${payload}"
         build_offline "${edition}" "${payload}" "${output}"
         mode="offline, ${variant} graphics"
