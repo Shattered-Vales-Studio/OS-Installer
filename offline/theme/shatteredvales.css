@@ -4,7 +4,10 @@
  * The site's black and gold: near-black surfaces, the SV mark on the
  * sidebar, and brand gold for the product title and primary actions.
  * Gold #c5a059 on #050505 is 8.1:1 and #050505 on gold is the same, both
- * WCAG AAA. The window itself uses Adwaita's dark variant
+ * WCAG AAA. Light gold #e0cba0 on Adwaita's dark page (#353535) is 7.7:1,
+ * also AAA, and is used for the storage screen's text links, which
+ * Anaconda colours through its screen definitions rather than CSS (see the
+ * Containerfile). The window itself uses Adwaita's dark variant
  * (gtk-application-prefer-dark-theme in /etc/gtk-3.0/settings.ini); this
  * file only overrides what Anaconda and Adwaita colour blue.
  *
@@ -53,6 +56,23 @@ AnacondaSpokeWindow #nav-box label {
     color: @sv_gold;
 }
 
+/* Keyboard layout indicator in the top bar. Anaconda's widget draws a
+ * white box with black text and icon, which clashes with the dark bar and
+ * picks up the gold label colour above as gold-on-white. The symbolic
+ * keyboard icon follows the text colour. */
+AnacondaLayoutIndicator,
+AnacondaSpokeWindow #nav-box AnacondaLayoutIndicator {
+    background-color: @sv_surface;
+    background-image: none;
+    border: 1px solid @sv_border;
+    color: @sv_gold;
+}
+
+AnacondaLayoutIndicator #anaconda-layout-label,
+AnacondaSpokeWindow #nav-box AnacondaLayoutIndicator #anaconda-layout-label {
+    color: @sv_gold;
+}
+
 /* Primary actions (Continue, Begin Installation, Reboot System) in gold
  * with near-black text, matching the site's buttons. */
 button.suggested-action,
@@ -71,14 +91,16 @@ button.suggested-action:hover,
 }
 
 button.suggested-action label,
-.suggested-action label {
+.suggested-action label,
+AnacondaSpokeWindow #nav-box button.suggested-action label {
     color: @sv_bg;
 }
 
 button.suggested-action:disabled,
 .suggested-action:disabled,
 button.suggested-action:disabled label,
-.suggested-action:disabled label {
+.suggested-action:disabled label,
+AnacondaSpokeWindow #nav-box button.suggested-action:disabled label {
     background-color: @sv_border;
     color: #a3a3a3;
 }
